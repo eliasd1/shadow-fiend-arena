@@ -135,7 +135,7 @@ function applyRung() {
   if (Math.abs(renderer.getPixelRatio() - pr) > 1e-3) { renderer.setPixelRatio(pr); resize(); }
 }
 function setQuality(q) {
-  baseDpr = Math.min(devicePixelRatio, q === 'low' ? 1 : 1.5);
+  baseDpr = Math.min(devicePixelRatio, q === 'low' ? 1 : 2); // the quality ladder lowers it if frames get slow
   rung = minRung = q === 'low' ? 1 : 0; autoQuality = true;
   applyRung(); resize();
 }
@@ -472,6 +472,8 @@ const HERO_BONES = [
   ['clavL', 5, -0.12, 0.47, 0], ['upperL', 12, -0.36, 0.44, 0], ['foreL', 13, -0.47, 0.0, 0], ['handL', 14, -0.60, -0.42, 0],
 ];
 // which height range each bone owns: body bones along the centre line, arm bones down each arm
+// animation springs per joint group: [frequency Hz, damping ratio]. Low damping = loose, swinging limbs
+const SPRING = { body: [2.2, 0.62], arm: [1.7, 0.32], claw: [2.4, 0.28], tail: [1.3, 0.38] };
 const BODY_SPANS = [[1, -0.02, 0.22], [5, 0.22, 0.52], [6, 0.52, 0.66], [7, 0.66, 1.1], [2, -0.32, -0.02], [3, -0.62, -0.32], [4, -1.1, -0.62]];
 const ARM_SPANS = [[0, 0.45, 1.1], [1, 0.0, 0.45], [2, -0.42, 0.0], [3, -1.1, -0.42]]; // clav, upper, fore, hand
 function skinHero(geo) {
@@ -481,12 +483,12 @@ function skinHero(geo) {
     const x = P.getX(i), y = P.getY(i), ax = Math.abs(x), side = x >= 0 ? 0 : 4;
     // arms hang beside the body: everything outside this line (it widens toward the shoulders) is arm
     const edge = 0.27 + Math.max(0, Math.min(y, 0.45)) * 0.18;
-    const arm = smooth(edge - 0.05, edge + 0.05, ax);
+    const arm = smooth(edge - 0.08, edge + 0.08, ax);
     const cand = [];
-    let sb = 0; for (const [b, lo, hi] of BODY_SPANS) sb += span(y, lo, hi, 0.07);
-    for (const [b, lo, hi] of BODY_SPANS) cand.push([b, (1 - arm) * span(y, lo, hi, 0.07) / sb]);
-    let sa = 0; for (const [, lo, hi] of ARM_SPANS) sa += span(y, lo, hi, 0.06);
-    for (const [k, lo, hi] of ARM_SPANS) cand.push([8 + side + k, arm * span(y, lo, hi, 0.06) / sa]);
+    let sb = 0; for (const [b, lo, hi] of BODY_SPANS) sb += span(y, lo, hi, 0.12);
+    for (const [b, lo, hi] of BODY_SPANS) cand.push([b, (1 - arm) * span(y, lo, hi, 0.12) / sb]);
+    let sa = 0; for (const [, lo, hi] of ARM_SPANS) sa += span(y, lo, hi, 0.10);
+    for (const [k, lo, hi] of ARM_SPANS) cand.push([8 + side + k, arm * span(y, lo, hi, 0.10) / sa]);
     cand.sort((a, b) => b[1] - a[1]);
     let sum = 0; for (let k = 0; k < 4; k++) sum += cand[k][1];
     for (let k = 0; k < 4; k++) { idx[i * 4 + k] = cand[k][0]; wts[i * 4 + k] = cand[k][1] / sum; }
@@ -810,7 +812,8 @@ class Unit {
     this.buffs = { haste: 0, dd: 0, regen: 0 };
     this.lastHitBy = null; this.lastHitT = -99; this.multi = 0; this.multiT = 0;
     this.flash = 0; this.deathT = 0; this.bob = rnd(0, 6); this.walkPhase = 0; this.flinch = 0;
-    this.pose = {}; this.poseT = {}; this.poseBase = {}; this.poseHold = {}; this.spdS = 0; this.yawS = 0; this.lastFacing = 0; this.dip = 0; this.bank = 0;
+    this.poseT = {}; this.springs = {}; this.velS = new THREE.Vector2(); this.velLag = { x: 0, y: 0, vx: 0, vy: 0 }; this.accF = 0; this.accR = 0; this.spdS = 0; this.dip = 0; this.bankS = 0;
+    this.yawV = { x: 0, v: 0 }; this.lookT = 0; this.look = 0;
     this.root = new THREE.Group(); scene.add(this.root);
     this.model = cloneHero(); this.root.add(this.model);
     const ring = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: this.color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.6 }));
@@ -907,75 +910,96 @@ class Unit {
     if (rune && Math.hypot(this.pos.x - rune.x, this.pos.z - rune.z) < 1.1) takeRune(this);
     this.vel.subVectors(this.pos, this.prev).divideScalar(dt);
   }
-  // Pose in the style of the DotA 1 Shadow Fiend (the WC3 Firelord model): a legless, hunched figure
-  // that glides with a slow float, long arms swinging like heavy pendulums and a tail streaming behind.
+  // Procedural animation in the style of the DotA 1 Shadow Fiend (the WC3 Firelord model): a hunched,
+  // legless figure that glides. Each joint is a damped spring (second-order dynamics, see Spring) chasing
+  // a target pose, so motion overshoots and settles instead of snapping: the body leans into acceleration
+  // and rocks back when stopping, the arms swing as heavy pendulums, the tail trails through turns.
   animate(dt, t) {
-    const raw = Math.min(Math.hypot(this.vel.x, this.vel.z) / CFG.speed, 1.6);
-    this.spdS += (raw - this.spdS) * (1 - Math.exp(-dt * 6));
+    // smoothed velocity and acceleration in the hero's own frame (forward / right)
+    const k = 1 - Math.exp(-dt * 10), V = this.velS, ax0 = V.x, az0 = V.y;
+    V.x += (this.vel.x - V.x) * k; V.y += (this.vel.z - V.y) * k;
+    const fx = Math.sin(this.facing), fz = Math.cos(this.facing);
+    const ax = (V.x - ax0) / Math.max(dt, 1e-3), az = (V.y - az0) / Math.max(dt, 1e-3);
+    this.accF += ((ax * fx + az * fz) - this.accF) * k; this.accR += ((ax * fz - az * fx) - this.accR) * k;
+    const speed = Math.hypot(V.x, V.y) / CFG.speed;
+    this.spdS += (Math.min(speed, 1.6) - this.spdS) * (1 - Math.exp(-dt * 6));
     const w = Math.min(this.spdS, 1), idle = 1 - w;
-    const yaw = wrap(this.facing - this.lastFacing) / Math.max(dt, 1e-3); this.lastFacing = this.facing;
-    this.yawS += (Math.max(-12, Math.min(12, yaw)) - this.yawS) * (1 - Math.exp(-dt * 6));
-    this.walkPhase += dt * Math.PI * 2 * 1.05 * this.spdS; // about one stride per second, faster with Haste
+    const aR = Math.max(-1, Math.min(1, this.accR / 12));
+    // momentum: a lagging, springy copy of the velocity. The gap between it and the real velocity is what the
+    // upper body, arms and tail feel: they lag on take-off, carry forward on a stop, then rock back and settle
+    { const L = this.velLag, om = 2 * Math.PI * 1.5, n = Math.ceil(dt * 12), h = dt / n;
+      for (let i = 0; i < n; i++) { L.vx += (om * om * (V.x - L.x) - 2 * 0.42 * om * L.vx) * h; L.vy += (om * om * (V.y - L.y) - 2 * 0.42 * om * L.vy) * h; L.x += L.vx * h; L.y += L.vy * h; } }
+    const aF = Math.max(-1.2, Math.min(1.2, ((this.velLag.x - V.x) * fx + (this.velLag.y - V.y) * fz) / CFG.speed));
+    this.walkPhase += dt * Math.PI * 2 * 1.0 * this.spdS;          // about one stride per second, faster with Haste
     const ph = this.walkPhase, br = Math.sin(t * 1.6 + this.bob), T = this.poseT;
-    // glide
-    T.pelvisX = 0.06 + 0.10 * w;                       // body only tips a little: the hunch is in the shoulders
-    T.chestX = 0.16 + 0.08 * w + br * 0.03 * idle;     // shoulders rolled forward; breathing at rest
-    T.chestY = Math.sin(ph) * 0.09 * w;                // shoulders turn a little into each swing
-    T.neckX = -0.10 - 0.12 * w;                        // head stays up, eyes ahead
-    T.headX = 0.06 + br * 0.02 * idle;
-    for (const [s, k] of [[1, 'R'], [-1, 'L']]) {
-      const sw = Math.sin(ph) * s;                     // arms swing in opposition
-      T['upperX' + k] = -sw * 0.38 * w - 0.08 + Math.sin(t * 1.1 + this.bob + s) * 0.05 * idle;
-      T['upperZ' + k] = s * (0.06 + 0.08 * w + br * 0.02 * idle);
-      // elbows and claws lag the shoulder: loose, heavy follow-through
-      T['foreX' + k] = -0.18 - Math.sin(ph - 0.8) * s * 0.22 * w;
-      T['handX' + k] = -0.12 - Math.sin(ph - 1.5) * s * 0.18 * w;
-      T['clavX' + k] = sw * 0.05 * w;
+    // idle life: now and then the head turns to look around
+    if ((this.lookT -= dt) <= 0) { this.lookT = rnd(1.5, 4); this.look = idle > 0.6 ? rnd(-0.6, 0.6) : 0; }
+    // glide: the hunch lives in the shoulders; the whole body tips into acceleration and rocks back on stopping
+    T.pelvisX = 0.06 + 0.10 * w + aF * 0.30;
+    T.pelvisZ = -aR * 0.18 + Math.sin(ph) * 0.05 * w;              // bank into turns, rock with the stride
+    T.chestX = 0.16 + 0.08 * w + br * 0.035 * idle;                 // breathing at rest
+    T.chestY = -Math.sin(ph) * 0.12 * w;                            // shoulders counter-rotate against the arms
+    T.chestZ = Math.sin(ph) * 0.04 * w;
+    T.neckX = -0.10 - 0.12 * w - aF * 0.15;                         // head stays level: eyes on the target
+    T.headX = 0.06 + br * 0.02 * idle; T.headY = this.look * idle;
+    for (const [s, kk] of [[1, 'R'], [-1, 'L']]) {
+      const sw = Math.sin(ph) * s;                                  // arms swing in opposition
+      T['upperX' + kk] = -sw * 0.36 * w - 0.08 - aF * 0.6 + Math.sin(t * 1.1 + this.bob + s) * 0.05 * idle;
+      T['upperZ' + kk] = s * (0.07 + 0.08 * w + br * 0.025 * idle) - aR * 0.25;
+      T['foreX' + kk] = -0.2 - Math.sin(ph - 0.8) * s * 0.2 * w - aF * 0.3;
+      T['handX' + kk] = -0.14 - Math.sin(ph - 1.5) * s * 0.18 * w + Math.sin(t * 2.3 + s * 1.7 + this.bob) * 0.06 * idle; // claws flex
+      T['clavX' + kk] = sw * 0.05 * w; T['clavZ' + kk] = s * br * 0.03;
     }
-    const turn = Math.max(-1, Math.min(1, this.yawS / 6));
-    for (let i = 1; i <= 3; i++) { // tail streams back and waves, trailing the turn
-      T['tailX' + i] = (0.10 + 0.20 * w) * [1, 0.8, 0.7][i - 1];
-      T['tailZ' + i] = Math.sin(t * 2.4 + this.bob - i * 0.9) * (0.07 + 0.08 * w) + turn * 0.12 * i * w;
+    for (let i = 1; i <= 3; i++) { // tail streams back with speed, waves, and swings wide through turns
+      T['tailX' + i] = (0.10 + 0.20 * w - aF * 0.3) * [1, 0.8, 0.7][i - 1];
+      T['tailZ' + i] = Math.sin(t * 2.2 + this.bob - i * 0.9) * (0.07 + 0.07 * w) - aR * 0.22;
     }
-    Object.assign(this.poseBase, T);
-    // raze: both arms rise overhead, then slam down in front on the impact frame
-    let dip = 0;
-    const slam = (e, k, s) => { T['upperX' + k] = -2.5 + 1.9 * e; T['upperZ' + k] = s * 0.25 * (1 - e); T['foreX' + k] = -0.5 + 0.2 * e; T['handX' + k] = -0.3 + 0.1 * e; };
+    // raze: anticipation (arms rise overhead, body arches back), then a slam on the impact frame
+    let dip = 0, snap = 1;
+    const slam = (e, kk, s) => { T['upperX' + kk] = -2.5 + 1.9 * e; T['upperZ' + kk] = s * 0.25 * (1 - e); T['foreX' + kk] = -0.5 + 0.2 * e; T['handX' + kk] = -0.3 + 0.1 * e; };
     if (this.cast) {
-      const c = 1 - this.cast.t / CFG.castTime;
+      const c = 1 - this.cast.t / CFG.castTime; snap = 4;
       if (c < 0.6) {
         const e = smooth(0, 0.6, c);
-        for (const [s, k] of [[1, 'R'], [-1, 'L']]) { T['upperX' + k] = -2.5 * e; T['upperZ' + k] = s * 0.25 * e; T['foreX' + k] = -0.5 * e; T['handX' + k] = -0.3 * e; }
-        T.chestX = 0.1 - 0.35 * e; T.pelvisX = 0.1 - 0.1 * e; T.neckX = -0.1; T.headX = -0.15 * e;
+        for (const [s, kk] of [[1, 'R'], [-1, 'L']]) { T['upperX' + kk] = -2.5 * e; T['upperZ' + kk] = s * 0.25 * e; T['foreX' + kk] = -0.5 * e; T['handX' + kk] = -0.3 * e; }
+        T.chestX = 0.1 - 0.35 * e; T.pelvisX = 0.1 - 0.1 * e; T.neckX = -0.1; T.headX = -0.15 * e; T.headY = 0;
       } else {
         const e = smooth(0.6, 1, c);
-        for (const [s, k] of [[1, 'R'], [-1, 'L']]) slam(e, k, s);
-        T.chestX = -0.25 + 0.75 * e; T.pelvisX = 0.35 * e; T.neckX = -0.1 - 0.2 * e; T.headX = 0.1 * e;
-        dip = 0.08 * e;
+        for (const [s, kk] of [[1, 'R'], [-1, 'L']]) slam(e, kk, s);
+        T.chestX = -0.25 + 0.75 * e; T.pelvisX = 0.35 * e; T.neckX = -0.1 - 0.2 * e; T.headX = 0.1 * e; T.headY = 0;
+        dip = 0.1 * e;
       }
-    } else if (this.post > 0) { // hold the slam, then settle back into the glide pose computed above
-      const e = smooth(0.15, 1, 1 - this.post / 0.38), H = this.poseHold;
-      for (const [s, k] of [[1, 'R'], [-1, 'L']]) slam(1, k, s);
-      for (const k of ['R', 'L']) for (const p of ['upperX', 'upperZ', 'foreX', 'handX']) { H[p + k] = T[p + k]; }
-      H.chestX = 0.5; H.pelvisX = 0.35; H.neckX = -0.3; H.headX = 0.1;
-      for (const p in H) T[p] = H[p] + (this.poseBase[p] - H[p]) * e;
-      dip = 0.08 * (1 - e);
+    } else if (this.post > 0) { // hold the slam a beat, then let the springs carry it back into the glide
+      if (this.post > 0.2) { for (const [s, kk] of [[1, 'R'], [-1, 'L']]) slam(1, kk, s); T.chestX = 0.5; T.pelvisX = 0.35; T.neckX = -0.3; T.headX = 0.1; snap = 2.5; dip = 0.1; }
     }
-    if (this.flinch > 0) {
-      this.flinch = Math.max(0, this.flinch - dt * 4);
-      T.chestX -= this.flinch * 0.35; T.neckX += this.flinch * 0.2; T.upperZR += this.flinch * 0.4; T.upperZL -= this.flinch * 0.4;
+    if (this.flinch > 0) { // a hit knocks the springs, they recover on their own
+      const S = this.springs, kick = this.flinch * 9;
+      for (const [p, v] of [['chestX', -kick], ['neckX', kick * 0.6], ['upperZR', kick], ['upperZL', -kick], ['pelvisX', -kick * 0.5]]) if (S[p]) S[p].v += v;
+      this.flinch = 0;
     }
-    const r = 1 - Math.exp(-dt * (this.cast ? 28 : 12)), C = this.pose;
-    for (const p in T) C[p] = C[p] === undefined ? T[p] : C[p] + (T[p] - C[p]) * r;
-    this.dip = dip; this.bank = Math.max(-0.3, Math.min(0.3, -this.yawS * 0.035)) * w;
+    // springs: per joint group frequency (Hz) and damping; lower damping = more overshoot
+    const S = this.springs;
+    for (const p in T) {
+      const g = p[0] === 't' ? SPRING.tail : p.startsWith('upper') ? SPRING.arm : p.startsWith('fore') || p.startsWith('hand') ? SPRING.claw : SPRING.body;
+      const sp = S[p] || (S[p] = { x: T[p], v: 0 });
+      const f = g[0] * snap, z = g[1], om = 2 * Math.PI * f;
+      // semi-implicit integration, sub-stepped so stiff cast springs stay stable at low frame rates
+      const n = Math.ceil(dt * f * 8), h = dt / n;
+      for (let i = 0; i < n; i++) { sp.v += (om * om * (T[p] - sp.x) - 2 * z * om * sp.v) * h; sp.x += sp.v * h; }
+    }
+    this.dip += (dip - this.dip) * (1 - Math.exp(-dt * 20));
+    this.bankS = S.pelvisZ ? S.pelvisZ.x : 0;
     const B = this.model.userData.bones; if (!B) return;
-    B.pelvis.rotation.x = C.pelvisX; B.chest.rotation.set(C.chestX, C.chestY, 0); B.neck.rotation.x = C.neckX; B.head.rotation.x = C.headX;
-    for (const k of ['R', 'L']) {
-      B['clav' + k].rotation.x = C['clavX' + k];
-      B['upper' + k].rotation.set(C['upperX' + k], 0, C['upperZ' + k]);
-      B['fore' + k].rotation.x = C['foreX' + k]; B['hand' + k].rotation.x = C['handX' + k];
+    const X = p => S[p].x;
+    B.pelvis.rotation.set(X('pelvisX'), 0, X('pelvisZ'));
+    B.chest.rotation.set(X('chestX'), X('chestY'), X('chestZ'));
+    B.neck.rotation.x = X('neckX'); B.head.rotation.set(X('headX'), X('headY'), 0);
+    for (const kk of ['R', 'L']) {
+      B['clav' + kk].rotation.set(X('clavX' + kk), 0, X('clavZ' + kk));
+      B['upper' + kk].rotation.set(X('upperX' + kk), 0, X('upperZ' + kk));
+      B['fore' + kk].rotation.x = X('foreX' + kk); B['hand' + kk].rotation.x = X('handX' + kk);
     }
-    for (let i = 1; i <= 3; i++) B['tail' + i].rotation.set(C['tailX' + i], 0, C['tailZ' + i]);
+    for (let i = 1; i <= 3; i++) B['tail' + i].rotation.set(X('tailX' + i), 0, X('tailZ' + i));
   }
   visual(dt, t) {
     const alive = this.alive;
@@ -986,16 +1010,22 @@ class Unit {
     const m = this.model;
     for (const s of m.userData.shadows) s.visible = heroShadows;
     this.blob.material.opacity = heroShadows ? 0.35 : 0.6;
-    m.rotation.y = this.facing;
+    // displayed heading eases toward the real one (turns start and stop softly); snappy while casting
+    { const Y = this.yawV, f = this.cast || this.post > 0 ? 9 : 3.4, om = 2 * Math.PI * f, tgt = Y.x + wrap(this.facing - Y.x);
+      if (Math.abs(tgt - Y.x) > 2.6) Y.x = tgt - Math.sign(tgt - Y.x) * 2.6; // after a respawn: don't spin the long way
+      const n = Math.ceil(dt * f * 8), h = dt / n; for (let i = 0; i < n; i++) { Y.v += (om * om * (tgt - Y.x) - 2 * 0.8 * om * Y.v) * h; Y.x += Y.v * h; } }
+    m.rotation.y = this.yawV.x;
     if (alive) {
       this.deathT = 0;
       this.animate(dt, t);
       // float: slow bob at rest, a gentle double bob per stride while gliding, no footfalls
       const w = Math.min(this.spdS, 1);
-      const hover = 0.32 + Math.sin(t * 1.8 + this.bob) * 0.06 * (1 - w) + Math.sin(this.walkPhase * 2) * 0.025 * w - this.dip;
-      m.position.set(0, hover, 0);
+      const hover = 0.32 + Math.sin(t * 1.8 + this.bob) * 0.06 * (1 - w) + Math.sin(this.walkPhase * 2 + 0.6) * 0.035 * w - this.dip;
+      // a slight side-to-side drift with the stride, so the glide never runs on rails
+      const sway = Math.sin(this.walkPhase) * 0.05 * w, yv = this.yawV.x;
+      m.position.set(Math.cos(yv) * sway, hover, -Math.sin(yv) * sway);
       m.rotation.order = 'YXZ';
-      m.rotation.set(0, this.facing, this.bank); // bank into turns
+      m.rotation.set(0, yv, 0);
       m.scale.setScalar(1 + this.flash * 0.06);
       this.ring.material.opacity = this.prot > 0 ? 0.3 + 0.3 * Math.sin(t * 20) : 0.6;
       this.ring.material.color.set(this.buffs.dd > 0 ? '#4a8aff' : this.color);
@@ -1454,6 +1484,9 @@ async function boot() {
     if (heroTemplate.userData.shadowGeo) skinHero(heroTemplate.userData.shadowGeo);
   }
   kinds.forEach((k, i) => { if (props[i]) PROP_TEMPLATES[k] = props[i]; });
+  // sharp textures at grazing angles (the top-down camera sees most surfaces obliquely)
+  const aniso = renderer.capabilities.getMaxAnisotropy();
+  [heroTemplate, ...Object.values(PROP_TEMPLATES)].forEach(t => t && t.traverse(o => { if (o.material) for (const k of ['map', 'metalnessMap', 'roughnessMap']) if (o.material[k]) { o.material[k].anisotropy = aniso; o.material[k].needsUpdate = true; } }));
   buildMap($('optMap').value);
   edgePointsCache = edgePoints(80, 0.5);
   setQuality('high');

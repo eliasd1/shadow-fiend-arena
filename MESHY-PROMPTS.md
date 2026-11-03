@@ -116,3 +116,23 @@ These come from free, credited sources or are made in code:
 - item icons (game-icons.net, CC BY 3.0)
 - music and sound effects (Kenney CC0 / CC BY music)
 - weather, fireflies, embers, bats and crows (built in code)
+
+---
+
+## Animation: what Meshy can and can't do for the hero
+
+Meshy's **Rig** and **Animate** tools are built for **humanoids with two arms and two legs**, standing in a T-pose or A-pose. Our Shadow Fiend has no legs; his body tapers into a tail. Meshy's auto-rig will either refuse it or put leg bones in the tail. That is why the hero is now rigged and animated in code, with a 16-bone skeleton and spring physics on every joint.
+
+### Option A: keep the current legless hero (recommended, free)
+You don't need Meshy for this. Tell me what feels off in a match, for example "arms too floppy" or "lean more when he stops", and I'll tune it. Every setting lives in one place: `SPRING` and `animate()` in `game/game.js`.
+
+### Option B: a new hero with legs, so Meshy can rig and animate it
+This gives keyframed animation (walk, run, idle, attack) from Meshy's library. The catch: it's a different silhouette from the DotA 1 gliding Shadow Fiend.
+
+1. **Text to 3D:** pick **A-pose** in the pose setting, about **15,000 triangles**, 2048 px texture.
+   > A tall gaunt shadow demon standing in A-pose, digitigrade demon legs, very long arms with large curved claws, small horned head held low, spiked shoulder plates, dark charcoal skin with glowing red ember cracks, glowing red core in the chest, wisps of black smoke trailing from the shoulders, stylized hand-painted dark fantasy game character, symmetrical, full body visible
+2. **Rig:** use **Humanoid** auto-rig.
+3. **Animate:** pick from the library: **Walk** (a slow, heavy, menacing walk), **Idle** (breathing, menacing), **Spell / cast with both arms** (for the raze), **Death**, and if offered **Run** and **Hit reaction**.
+4. **Export:** GLB *with animations*. Save it as `models/raw/hero-rigged.glb` and tell me. I'll switch the game to play its clips through Three.js's animation mixer, with smooth blending between them.
+
+Every generation, rig and animation costs Meshy credits, so check your balance first.

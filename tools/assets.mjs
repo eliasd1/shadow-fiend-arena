@@ -6,7 +6,7 @@
    Reads   models/shadow-fiend-game.glb and models/props/game-ready/*.glb
    Writes  models/optimized/*.glb, game/hero-data.js, game/props-data.js
 
-   Per model: textures resized and re-encoded as JPEG, vertex data quantised (KHR_mesh_quantization:
+   Per model: original textures kept as-is, vertex data quantised (KHR_mesh_quantization:
    int16 positions, int8 normals, uint16 UVs), plus simplified variants made with a quadric
    edge-collapse simplifier: a low-poly backdrop tree and a low-poly hero shadow caster. */
 import fs from 'node:fs';
@@ -234,23 +234,23 @@ function emit(name, mesh, opts) {
   report.push(`${name.padEnd(14)} ${String(mesh.idx.length / 3).padStart(6)} tris  ${(glb.length / 1024).toFixed(0).padStart(5)} KB`);
   return glb.toString('base64');
 }
-function full(m, texSize, mrSize, q) {
-  const images = [jpeg(m.color, texSize, q)]; if (m.mr) images.push(jpeg(m.mr, mrSize, q));
+function full(m) { // original Meshy textures, untouched: re-encoding them made the hero visibly blurry
+  const images = [m.color]; if (m.mr) images.push(m.mr);
   return { images, material: pbr(0, m.mr ? 1 : undefined) };
 }
 
 // hero: 1024 colour, small metal/rough map; plus a ~2.5k-triangle shadow caster (geometry only)
 const hero = loadMesh(path.join(MODELS, 'shadow-fiend-game.glb'));
-const heroB64 = emit('hero', hero, full(hero, 1024, 256, 82));
+const heroB64 = emit('hero', hero, full(hero));
 const heroShadowB64 = emit('hero-shadow', { ...simplify(hero, 2500), uv: null }, { material: pbr() });
 fs.writeFileSync(path.join(GAME, 'hero-data.js'), `window.HERO_GLB_B64="${heroB64}";\nwindow.HERO_SHADOW_GLB_B64="${heroShadowB64}";\n`);
 
 // props: 1024 colour for the big decor pieces, 512 for the rest; the dead tree also gets a backdrop LOD
-const PROPS = { obelisk: ['obelisk', 1024], gargoyle: ['gargoyle', 1024], column: ['column', 512], tree: ['dead-tree', 512], ice: ['ice-crystal', 1024] };
+const PROPS = { obelisk: 'obelisk', gargoyle: 'gargoyle', column: 'column', tree: 'dead-tree', ice: 'ice-crystal' };
 const props = {};
-for (const [key, [file, size]] of Object.entries(PROPS)) {
+for (const [key, file] of Object.entries(PROPS)) {
   const m = loadMesh(path.join(MODELS, 'props', 'game-ready', file + '.glb'));
-  props[key] = emit(key, m, full(m, size, 128, 80));
+  props[key] = emit(key, m, full(m));
   if (key === 'tree') props.treeFar = emit('treeFar', simplify(m, 700), { images: [jpeg(m.color, 256, 75)], material: pbr(0) });
 }
 fs.writeFileSync(path.join(GAME, 'props-data.js'), 'window.SFA_PROPS=' + JSON.stringify(props) + ';\n');

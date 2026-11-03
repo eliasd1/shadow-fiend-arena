@@ -5,3 +5,4 @@ models/props/*.glb
 .DS_Store
 .claude/
 models/optimized/
+docs/walk/*.webm
