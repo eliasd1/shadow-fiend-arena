@@ -174,7 +174,7 @@ canvas { transition: filter .4s; }
   <div class="panel">
     <h1>SHADOW FIEND <span>ARENA</span></h1>
     <p class="tag">Raze. Predict. Harvest their souls.</p>
-    <div class="row"><label>Map</label><select id="optMap"><option value="molten" selected>Scourge Pit (lava)</option><option value="river">Ancient River (night forest)</option><option value="frozen">Frozen Throne (ice)</option></select></div>
+    <div class="row"><label>Map</label><select id="optMap"><option value="molten" selected>Scourge Pit (lava)</option><option value="river">Ancient River (night forest)</option><option value="frozen">Frozen Throne (ice)</option><option value="grave">Forsaken Graveyard (night)</option></select></div>
     <div class="row"><label>Fog of war</label><select id="optFog"><option value="on" selected>On</option><option value="off">Off</option></select></div>
     <div class="row"><label>Bots</label><select id="optBots"><option>1</option><option>2</option><option>3</option><option selected>5</option><option>7</option></select></div>
     <div class="row"><label>Difficulty</label><select id="optDiff"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select></div>
@@ -4680,18 +4680,31 @@ const emitN = (rate, dt) => { const n = rate * dt * fxDensity; return (n | 0) + 
 // Arena = rounded rectangle (hx, hz, corner r). Hazards are capsules (segment + radius).
 // Obstacles block movement (razes still hit through them, like the original).
 function mirror(list) { return list.concat(list.map(o => Object.assign({}, o, { x: -o.x, z: -o.z, rot: (o.rot || 0) + Math.PI }))); }
+// point-mirror a terrace or ramp through the arena centre (maps are symmetric so no side is favoured)
+const mirT = t => t.r !== undefined ? { ...t, x: -t.x, z: -t.z } : t.rect ? { ...t, rect: [-t.rect[2], -t.rect[3], -t.rect[0], -t.rect[1]] } : { ...t, poly: t.poly.map(([x, z]) => [-x, -z]) };
+const mirR = r => ({ ...r, a: [-r.a[0], -r.a[1]], b: [-r.b[0], -r.b[1]] });
+const both = (list, f) => list.concat(list.map(f));
 const MAPS = {
+  // lava river with three bridges; each bank has a raised bastion in its back corner and a small lookout
   molten: {
-    name: 'Scourge Pit', theme: 'molten', sight: 15, hx: 22, hz: 18, r: 6, edge: 'lava', edgeDps: 160,
+    name: 'Scourge Pit', theme: 'molten', sight: 14, hx: 22, hz: 18, r: 6, edge: 'lava', edgeDps: 160,
     sky: 0x070203, fog: [0x170504, 0.015], hemi: [0x5a4a5a, 0x2a0603, 0.55], sun: [0xffb898, 1.25], exposure: 0.95,
     hazards: [
       { type: 'lava', a: [-30, 0], b: [-13.9, 0], r: 1.5 }, { type: 'lava', a: [-10.1, 0], b: [-1.9, 0], r: 1.5 },
       { type: 'lava', a: [1.9, 0], b: [10.1, 0], r: 1.5 }, { type: 'lava', a: [13.9, 0], b: [30, 0], r: 1.5 },
     ],
     bridges: [[-12, 0], [0, 0], [12, 0]],
+    terraces: both([
+      { poly: [[-21.2, -8.5], [-11.5, -8.5], [-11.5, -16.8], [-16.5, -16.8], [-21.2, -12.5]], h: 1.6 },
+      { x: 14, z: -13, r: 3.3, h: 1.2 },
+    ], mirT),
+    ramps: both([
+      { a: [-8.2, -12.6], b: [-11.5, -12.6], w: 3.2 }, { a: [-17, -5.0], b: [-17, -8.5], w: 3.0 },
+      { a: [14, -7.2], b: [14, -9.7], w: 2.6 },
+    ], mirR),
     obstacles: mirror([
       { prop: 'obelisk', x: -7, z: -8, r: 1.0, h: 5.5 }, { prop: 'obelisk', x: 7, z: -8, r: 1.0, h: 4.8 },
-      { prop: 'obelisk', x: -17, z: -9, r: 1.0, h: 5.0 },
+      { prop: 'obelisk', x: -16, z: -13, r: 1.0, h: 5.5 },
       { prop: 'shop', x: 0, z: -14.5, r: 1.8, h: 3.6, rot: 0 },
     ]),
     decor: mirror([
@@ -4702,15 +4715,18 @@ const MAPS = {
     ]),
     runes: [[-12, 0], [12, 0]],
   },
+  // a diagonal river that slows you; a forest bluff on each side holds the Soul Merchant
   river: {
-    name: 'Ancient River', theme: 'river', sight: 12.5, hx: 23, hz: 18, r: 5, edge: 'wall',
+    name: 'Ancient River', theme: 'river', sight: 13, hx: 23, hz: 18, r: 5, edge: 'wall',
     sky: 0x05080d, fog: [0x0a1220, 0.016], hemi: [0x5a6a9a, 0x161208, 0.9], sun: [0xa8bcff, 1.35], exposure: 1.3,
     hazards: [{ type: 'water', a: [-30, -16.2], b: [30, 16.2], r: 2.7 }],
+    terraces: both([{ x: -13, z: 10, r: 6.2, h: 1.6 }], mirT),
+    ramps: both([{ a: [-6.5, 3.5], b: [-8.62, 5.62], w: 3.2 }, { a: [-3.6, 10], b: [-6.8, 10], w: 3.0 }], mirR),
     obstacles: mirror([
-      { prop: 'tree', x: -14, z: 8, r: 0.8, h: 4.6 }, { prop: 'tree', x: -12.4, z: 9.8, r: 0.8, h: 4.2 }, { prop: 'tree', x: -15.8, z: 10.2, r: 0.8, h: 5.0 },
-      { prop: 'tree', x: -4, z: 13, r: 0.8, h: 4.4 }, { prop: 'tree', x: -2.4, z: 14.6, r: 0.8, h: 4.8 }, { prop: 'tree', x: -20, z: 1.5, r: 0.8, h: 4.5 },
-      { prop: 'column', x: -8, z: 3, r: 1.0, h: 3.6 }, { prop: 'column', x: -16, z: -3, r: 1.0, h: 3.2 }, { prop: 'column', x: 6, z: 11, r: 1.0, h: 3.8 },
-      { prop: 'shop', x: -19, z: 14, r: 1.8, h: 3.6, rot: Math.PI * 0.75 },
+      { prop: 'tree', x: -14, z: 7.5, r: 0.8, h: 4.6 }, { prop: 'tree', x: -11.5, z: 9.6, r: 0.8, h: 4.2 }, { prop: 'tree', x: -16.4, z: 9.6, r: 0.8, h: 5.0 },
+      { prop: 'tree', x: -4, z: 13.5, r: 0.8, h: 4.4 }, { prop: 'tree', x: -2.2, z: 15, r: 0.8, h: 4.8 }, { prop: 'tree', x: -20, z: 1.5, r: 0.8, h: 4.5 },
+      { prop: 'column', x: -9.5, z: 0.5, r: 1.0, h: 3.6 }, { prop: 'column', x: -16, z: -3, r: 1.0, h: 3.2 }, { prop: 'column', x: 6, z: 11.5, r: 1.0, h: 3.8 },
+      { prop: 'shop', x: -15.2, z: 13, r: 1.8, h: 3.6, rot: Math.PI * 0.75 },
     ]),
     decor: mirror([
       { prop: 'gargoyle', x: -27, z: -17, h: 4.2, rot: 0.8 }, { prop: 'gargoyle', x: 27, z: 17.5, h: 4.2, rot: -2.4 },
@@ -4721,11 +4737,14 @@ const MAPS = {
     outsideTrees: true,
     runes: [[-10, -5.4], [10, 5.4]],
   },
+  // a round ice platform over the abyss; the throne dais in the middle is high ground and covered in ice
   frozen: {
-    name: 'Frozen Throne', theme: 'frozen', sight: 16, hx: 20, hz: 20, r: 20, edge: 'abyss', edgeDps: 600,
+    name: 'Frozen Throne', theme: 'frozen', sight: 15, hx: 20, hz: 20, r: 20, edge: 'abyss', edgeDps: 600,
     sky: 0x0b1018, fog: [0x1a2635, 0.017], hemi: [0x7080a8, 0x141a26, 0.6], sun: [0xcfe2ff, 1.15], exposure: 0.8,
-    hazards: [], ice: [{ x: 0, z: 0, r: 7.2 }],
-    obstacles: [0, 1, 2, 3, 4, 5].map(k => { const a = k * Math.PI / 3 + Math.PI / 6; return { prop: 'ice', x: Math.cos(a) * 12, z: Math.sin(a) * 12, r: 1.25, h: 3.4, rot: a }; })
+    hazards: [], ice: [{ x: 0, z: 0, r: 4.7 }],
+    terraces: [{ x: 0, z: 0, r: 6, h: 1.7 }],
+    ramps: [45, 135, 225, 315].map(d => { const a = d * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return { a: [c * 9, s * 9], b: [c * 6, s * 6], w: 3 }; }),
+    obstacles: [0, 1, 2, 3, 4, 5].map(k => { const a = k * Math.PI / 3 + Math.PI / 6; return { prop: 'ice', x: Math.cos(a) * 12.5, z: Math.sin(a) * 12.5, r: 1.25, h: 3.4, rot: a }; })
       .concat([{ prop: 'shop', x: 0, z: 16.5, r: 1.8, h: 3.6, rot: Math.PI }, { prop: 'shop', x: 0, z: -16.5, r: 1.8, h: 3.6, rot: 0 }]),
     decor: [
       { prop: 'ice', x: 0, z: -27, h: 14 }, { prop: 'ice', x: -9, z: -25, h: 8, rot: 1 }, { prop: 'ice', x: 9, z: -25, h: 8, rot: 2 },
@@ -4733,6 +4752,31 @@ const MAPS = {
       { prop: 'iceThrone', x: 0, z: -32, h: 18, opt: true }, { prop: 'frozenPillar', x: -24, z: -9, h: 5, rot: 0.4, opt: true }, { prop: 'frozenPillar', x: 24, z: 9, h: 5, rot: 2.1, opt: true },
     ],
     runes: [[-16, 0], [16, 0]],
+  },
+  // a haunted hill with a crypt mound on top; four cursed open graves burn anyone who stands in them
+  grave: {
+    name: 'Forsaken Graveyard', theme: 'grave', sight: 13, hx: 21, hz: 21, r: 7, edge: 'wall',
+    sky: 0x04070a, fog: [0x0a1412, 0.018], hemi: [0x5a6a72, 0x0e1210, 0.85], sun: [0x9ab8c8, 1.25], exposure: 1.15,
+    hazards: [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => ({ type: 'curse', a: [sx * 13 - 0.8, sz * 12.5], b: [sx * 13 + 0.8, sz * 12.5], r: 1.5 })),
+    terraces: [{ x: 0, z: 0, r: 8, h: 1.4 }, { x: 0, z: 0, r: 3.3, h: 2.8 }],
+    ramps: [
+      { a: [0, -11.2], b: [0, -8], w: 3.2 }, { a: [0, 11.2], b: [0, 8], w: 3.2 }, { a: [11.2, 0], b: [8, 0], w: 3.2 }, { a: [-11.2, 0], b: [-8, 0], w: 3.2 },
+      { a: [5.7, 0.2], b: [3.3, 0.2], w: 2.4 }, { a: [-5.7, -0.2], b: [-3.3, -0.2], w: 2.4 },
+    ],
+    obstacles: [
+      { prop: 'obelisk', x: 0, z: 0, r: 0.9, h: 4.2 },
+      ...[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => ({ prop: 'column', x: sx * 4.6, z: sz * 4.6, r: 0.9, h: 2.6 })),
+      ...[[-16, -8], [16, 8], [-8, 16], [8, -16], [-17, 9], [17, -9]].map(([x, z]) => ({ prop: 'tree', x, z, r: 0.8, h: 4.8 })),
+      { prop: 'shop', x: -17, z: 0, r: 1.8, h: 3.6, rot: Math.PI / 2 }, { prop: 'shop', x: 17, z: 0, r: 1.8, h: 3.6, rot: -Math.PI / 2 },
+    ],
+    decor: [
+      { prop: 'gargoyle', x: -25, z: -25, h: 4.5, rot: 0.8 }, { prop: 'gargoyle', x: 25, z: 25, h: 4.5, rot: -2.4 },
+      { prop: 'gargoyle', x: 25, z: -25, h: 4.5, rot: -0.8 }, { prop: 'gargoyle', x: -25, z: 25, h: 4.5, rot: 2.4 },
+      { prop: 'crypt', x: 0, z: -27, h: 8, opt: true }, { prop: 'deadOak', x: 26, z: 4, h: 9, opt: true }, { prop: 'deadOak', x: -26, z: -4, h: 9, rot: 2, opt: true },
+      { prop: 'tombstones', x: -9, z: 15, h: 1.3, opt: true }, { prop: 'tombstones', x: 9, z: -15, h: 1.3, rot: Math.PI, opt: true },
+    ],
+    outsideTrees: true,
+    runes: [[0, -16], [0, 16]],
   },
 };
 let MAP = MAPS.molten;
@@ -4751,6 +4795,119 @@ function hazardAt(x, z) {
   return null;
 }
 function onIce(x, z) { return (MAP.ice || []).some(c => Math.hypot(x - c.x, z - c.z) < c.r); }
+// ------------------------------------------------------------------ terrain: cliff levels, ramps, pathing
+// Like a WC3 tileset: flat terraces at cliff levels joined by ramps. A map lists `terraces` (rect, circle or
+// polygon plateaus with a height; later ones stack on earlier ones) and `ramps` (low end a, high end b, width).
+// Everything is baked into one height grid (0.25 units) that movement, vision, effects and the camera read.
+const TG = { res: 0.25, x0: 0, z0: 0, n: 0, h: null };
+// walkable means gentle: ramps rise at most ~0.6 per unit, a cliff (blended over one grid cell) is ~7 per unit
+const MAX_SLOPE = 1.8, NAV_SLOPE = 0.8; // paths are a bit stricter, so they climb ramps from the bottom, never up a side lip
+function inShape(t, x, z) {
+  if (t.r !== undefined) return Math.hypot(x - t.x, z - t.z) <= t.r;
+  if (t.rect) return x >= t.rect[0] && x <= t.rect[2] && z >= t.rect[1] && z <= t.rect[3];
+  let c = false; const P = t.poly; // polygon, even-odd
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) if ((P[i][1] > z) !== (P[j][1] > z) && x < (P[j][0] - P[i][0]) * (z - P[i][1]) / (P[j][1] - P[i][1]) + P[i][0]) c = !c;
+  return c;
+}
+function plateauH(m, x, z) { let h = 0; for (const t of m.terraces || []) if (inShape(t, x, z)) h = Math.max(h, t.h); return h; }
+function buildTerrain(m) {
+  const ext = Math.max(m.hx, m.hz) + 6; TG.x0 = TG.z0 = -ext; TG.n = Math.ceil(ext * 2 / TG.res); TG.h = new Float32Array(TG.n * TG.n);
+  for (const r of m.ramps || []) { r.h0 = plateauH(m, r.a[0], r.a[1]); r.h1 = plateauH(m, r.b[0] + (r.b[0] - r.a[0]) * 0.05, r.b[1] + (r.b[1] - r.a[1]) * 0.05); }
+  for (let iz = 0; iz < TG.n; iz++) for (let ix = 0; ix < TG.n; ix++) {
+    const x = TG.x0 + (ix + 0.5) * TG.res, z = TG.z0 + (iz + 0.5) * TG.res;
+    let h = plateauH(m, x, z);
+    for (const r of m.ramps || []) {
+      const dx = r.b[0] - r.a[0], dz = r.b[1] - r.a[1], L = Math.hypot(dx, dz), ux = dx / L, uz = dz / L;
+      const t = ((x - r.a[0]) * ux + (z - r.a[1]) * uz) / L, side = Math.abs((x - r.a[0]) * uz - (z - r.a[1]) * ux);
+      if (t >= -0.02 && t <= 1.02 && side <= r.w / 2) h = r.h0 + (r.h1 - r.h0) * Math.max(0, Math.min(1, t));
+    }
+    TG.h[iz * TG.n + ix] = h;
+  }
+}
+// ground height at a point (bilinear, so ramps are smooth slopes and cliffs are one-cell-wide steep walls)
+function H(x, z) {
+  if (!TG.h) return 0;
+  const fx = (x - TG.x0) / TG.res - 0.5, fz = (z - TG.z0) / TG.res - 0.5, ix = Math.floor(fx), iz = Math.floor(fz), N = TG.n;
+  if (ix < 0 || iz < 0 || ix >= N - 1 || iz >= N - 1) return 0;
+  const tx = fx - ix, tz = fz - iz, i = iz * N + ix, h = TG.h;
+  return (h[i] * (1 - tx) + h[i + 1] * tx) * (1 - tz) + (h[i + N] * (1 - tx) + h[i + N + 1] * tx) * tz;
+}
+// can a hero step from a to b, or is that a cliff? (judged by steepness, so tiny steps can't creep up a wall)
+function slopeOK(ax, az, bx, bz, max) { const d = Math.hypot(bx - ax, bz - az); return d < 1e-6 || Math.abs(H(bx, bz) - H(ax, az)) <= max * Math.max(d, 0.04); }
+function canStep(ax, az, bx, bz) { return slopeOK(ax, az, bx, bz, MAX_SLOPE); }
+// line of sight over terrain: anything higher than the viewer's ground in between blocks it
+function terrainLOS(ax, az, bx, bz) {
+  const hv = H(ax, az) + 0.5, d = Math.hypot(bx - ax, bz - az), n = Math.ceil(d / 0.5);
+  for (let i = 1; i <= n; i++) { const t = i / n; if (H(ax + (bx - ax) * t, az + (bz - az) * t) > hv) return false; }
+  return true;
+}
+
+// A* over a 0.5-unit walk grid: cliffs (except via ramps), obstacles, the arena edge and (optionally) lava
+const NAV = { res: 0.5, x0: 0, z0: 0, n: 0, walk: null, walkSafe: null };
+function buildNav(m) {
+  const ext = Math.max(m.hx, m.hz) + 3; NAV.x0 = NAV.z0 = -ext; NAV.n = Math.ceil(ext * 2 / NAV.res);
+  NAV.walk = new Uint8Array(NAV.n * NAV.n); NAV.walkSafe = new Uint8Array(NAV.n * NAV.n);
+  const lim = m.edge === 'wall' ? -0.9 : -0.4;
+  for (let iz = 0; iz < NAV.n; iz++) for (let ix = 0; ix < NAV.n; ix++) {
+    const x = NAV.x0 + (ix + 0.5) * NAV.res, z = NAV.z0 + (iz + 0.5) * NAV.res, i = iz * NAV.n + ix;
+    let ok = sdArena(x, z, m) < lim && !m.obstacles.some(o => Math.hypot(o.x - x, o.z - z) < o.r + CFG.unitR + 0.1);
+    // a cell on a cliff edge (big height change within a hero's radius) is not walkable
+    if (ok) { const h = H(x, z); // no steep ground anywhere within a hero's radius
+      for (const r of [0.15, 0.3, 0.45]) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]]) if (Math.abs(H(x + dx * r, z + dz * r) - h) > NAV_SLOPE * r + 0.02) { ok = false; break; } }
+    NAV.walk[i] = ok ? 1 : 0;
+    const hz = ok && hazardAt(x, z); NAV.walkSafe[i] = ok && !(hz && hz.type !== 'water') ? 1 : 0;
+  }
+}
+const navCell = (x, z) => [Math.floor((x - NAV.x0) / NAV.res), Math.floor((z - NAV.z0) / NAV.res)];
+const navOK = (grid, ix, iz) => ix >= 0 && iz >= 0 && ix < NAV.n && iz < NAV.n && grid[iz * NAV.n + ix] === 1;
+function nearestOpen(grid, ix, iz) {
+  if (navOK(grid, ix, iz)) return [ix, iz];
+  for (let r = 1; r < 14; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) if (Math.max(Math.abs(dx), Math.abs(dz)) === r && navOK(grid, ix + dx, iz + dz)) return [ix + dx, iz + dz];
+  return null;
+}
+function walkLine(grid, ax, az, bx, bz) { // straight segment stays on walkable cells and never crosses a cliff
+  const d = Math.hypot(bx - ax, bz - az), n = Math.ceil(d / 0.12);
+  let px = ax, pz = az;
+  for (let i = 1; i <= n; i++) { const t = i / n, x = ax + (bx - ax) * t, z = az + (bz - az) * t, [ix, iz] = navCell(x, z); if (!navOK(grid, ix, iz) || !slopeOK(px, pz, x, z, NAV_SLOPE)) return false; px = x; pz = z; }
+  return true;
+}
+const navG = new Float32Array(0);
+function findPath(ax, az, bx, bz, avoidHazards = true) {
+  if (!NAV.walk) return [[bx, bz]];
+  const grid = avoidHazards ? NAV.walkSafe : NAV.walk, N = NAV.n;
+  let s = navCell(ax, az), e = navCell(bx, bz);
+  s = nearestOpen(grid, s[0], s[1]) || nearestOpen(NAV.walk, s[0], s[1]); e = nearestOpen(grid, e[0], e[1]);
+  if (!s || !e) return [[bx, bz]];
+  const endX = NAV.x0 + (e[0] + 0.5) * NAV.res, endZ = NAV.z0 + (e[1] + 0.5) * NAV.res;
+  const tx = navOK(grid, ...navCell(bx, bz)) ? bx : endX, tz = navOK(grid, ...navCell(bx, bz)) ? bz : endZ;
+  if (walkLine(grid, ax, az, tx, tz)) return [[tx, tz]];
+  const g = new Float32Array(N * N).fill(1e9), from = new Int32Array(N * N).fill(-1), closed = new Uint8Array(N * N);
+  const heap = [], push = (f, i) => { heap.push([f, i]); let k = heap.length - 1; while (k) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  const si = s[1] * N + s[0], ei = e[1] * N + e[0], hx = i => Math.hypot((i % N) - e[0], ((i / N) | 0) - e[1]);
+  g[si] = 0; push(hx(si), si);
+  let found = false, guard = 0;
+  while (heap.length && guard++ < 40000) {
+    const [, i] = pop(); if (closed[i]) continue; closed[i] = 1;
+    if (i === ei) { found = true; break; }
+    const ix = i % N, iz = (i / N) | 0, hi = TG.h ? H(NAV.x0 + (ix + 0.5) * NAV.res, NAV.z0 + (iz + 0.5) * NAV.res) : 0;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dz) continue; const jx = ix + dx, jz = iz + dz; if (!navOK(grid, jx, jz)) continue;
+      if (dx && dz && (!navOK(grid, ix + dx, iz) || !navOK(grid, ix, iz + dz))) continue; // no corner cutting
+      const j = jz * N + jx; if (closed[j]) continue;
+      if (Math.abs(H(NAV.x0 + (jx + 0.5) * NAV.res, NAV.z0 + (jz + 0.5) * NAV.res) - hi) > NAV_SLOPE * NAV.res * (dx && dz ? 1.414 : 1)) continue;
+      const ng = g[i] + (dx && dz ? 1.4142 : 1); if (ng < g[j]) { g[j] = ng; from[j] = i; push(ng + hx(j), j); }
+    }
+  }
+  if (!found) return [[tx, tz]];
+  const cells = []; for (let i = ei; i !== -1; i = from[i]) cells.push([NAV.x0 + ((i % N) + 0.5) * NAV.res, NAV.z0 + (((i / N) | 0) + 0.5) * NAV.res]);
+  cells.reverse(); cells[cells.length - 1] = [tx, tz];
+  // string-pull: keep only the corners the straight walk can't skip
+  const out = []; let cx = ax, cz = az, k = 0;
+  while (k < cells.length) { let far = k; for (let j = cells.length - 1; j > k; j--) if (walkLine(grid, cx, cz, cells[j][0], cells[j][1])) { far = j; break; } out.push(cells[far]); [cx, cz] = cells[far]; k = far + 1; }
+  return out;
+}
+
 
 // ------------------------------------------------------------------ renderer / scene
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -4821,18 +4978,21 @@ sun.position.set(12, 30, 9);
 scene.add(sun);
 const glowLight = new THREE.PointLight(0xff3a08, 0.8, 70, 1.5); glowLight.position.set(0, -2, 0); scene.add(glowLight);
 
-// ------------------------------------------------------------------ fog of war
-const FOW_N = 96;
+// ------------------------------------------------------------------ fog of war (WC3 style)
+// R = in vision right now, G = explored. Unexplored ground is black shroud, explored ground you can't see is
+// dimmed (terrain stays, heroes and effects vanish), vision is blocked by trees/pillars and by higher cliffs.
+const FOW_N = 128;
 const fowData = new Uint8Array(FOW_N * FOW_N * 4).fill(255);
 const fowTex = new THREE.DataTexture(fowData, FOW_N, FOW_N, THREE.RGBAFormat);
 fowTex.magFilter = fowTex.minFilter = THREE.LinearFilter; fowTex.generateMipmaps = false; fowTex.needsUpdate = true;
 const FOW_U = { fowTex: { value: fowTex }, fowRect: { value: new THREE.Vector4(-30, -30, 60, 60) } };
-const fowCur = new Float32Array(FOW_N * FOW_N).fill(1);
-const FOW_GLSL = 'uniform sampler2D fowTex; uniform vec4 fowRect; float fowAt(vec2 p){ return texture2D(fowTex, (p - fowRect.xy) / fowRect.zw).r; }\n';
-const FOW_DARK = '0.27';
+const fowCur = new Float32Array(FOW_N * FOW_N).fill(1), fowSeen = new Float32Array(FOW_N * FOW_N).fill(1);
+const FOW_GLSL = 'uniform sampler2D fowTex; uniform vec4 fowRect;\n' +
+  'float fowAt(vec2 p){ return texture2D(fowTex, (p - fowRect.xy) / fowRect.zw).r; }\n' +
+  'float fowK(vec2 p){ vec2 f = texture2D(fowTex, (p - fowRect.xy) / fowRect.zw).rg; return mix(f.g * 0.34, 1.0, f.r); }\n';
 THREE.ShaderChunk.common += '\n#ifdef USE_FOW\nvarying vec2 vFowW;\n' + FOW_GLSL + '#endif\n';
 THREE.ShaderChunk.project_vertex += '\n#ifdef USE_FOW\n{ vec4 fp = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\nfp = instanceMatrix * fp;\n#endif\nvFowW = (modelMatrix * fp).xz; }\n#endif\n';
-THREE.ShaderChunk.fog_fragment = '#ifdef USE_FOW\ngl_FragColor.rgb *= mix(' + FOW_DARK + ', 1.0, fowAt(vFowW));\n#endif\n' + THREE.ShaderChunk.fog_fragment;
+THREE.ShaderChunk.fog_fragment = '#ifdef USE_FOW\ngl_FragColor.rgb *= fowK(vFowW);\n#endif\n' + THREE.ShaderChunk.fog_fragment;
 function fowMat(mat) {
   if (!mat || mat.isShaderMaterial || mat.isPointsMaterial || mat.userData.fow) return;
   mat.userData.fow = true;
@@ -4857,28 +5017,46 @@ function losClear(ax, az, bx, bz) { // obstacles (trees, pillars) block line of 
   }
   return true;
 }
+// everything that gives `a` vision: itself, its team mates (team mode) and their wards
+function eyesOf(a) {
+  const out = [];
+  for (const u of units) if (u === a || (a.team !== undefined && u.team === a.team)) {
+    if (u.alive) out.push({ x: u.pos.x, z: u.pos.z, R: sight() });
+    for (const w of u.wards) out.push({ x: w.x, z: w.z, R: ITEMS.ward.vision });
+  }
+  if (!out.length && a.alive === false) out.push({ x: a.pos.x, z: a.pos.z, R: sight() * 0.6 });
+  return out;
+}
+const eyeSees = (e, x, z) => Math.hypot(x - e.x, z - e.z) < e.R && losClear(e.x, e.z, x, z) && terrainLOS(e.x, e.z, x, z);
 function canSee(a, x, z) {
-  if (!fogOn || (Math.hypot(x - a.pos.x, z - a.pos.z) < sight() && losClear(a.pos.x, a.pos.z, x, z))) return true;
-  for (const w of a.wards) if (Math.hypot(x - w.x, z - w.z) < ITEMS.ward.vision && losClear(w.x, w.z, x, z)) return true;
+  if (!fogOn) return true;
+  for (const e of eyesOf(a)) if (eyeSees(e, x, z)) return true;
   return false;
 }
 // a unit is seen if its spot is in vision and it is not hidden by a Veil Blade
 function canSeeUnit(a, u) { return u === a || (!(u.invis > 0) && canSee(a, u.pos.x, u.pos.z)); }
+// the fog is recomputed a third of the rows per frame (a full refresh every 3 frames), so its cost is
+// spread evenly instead of landing on one frame
+let fowRow = 0;
 function updateFog(dt) {
-  fowT -= dt; if (fowT > 0) return; fowT = 1 / 15;
+  if (fowT > 0) { fowT -= dt; return; } // fowT > 0 only right after a map change: hold the shroud a moment
   const r = FOW_U.fowRect.value, cs = r.z / FOW_N, D = fowImg.data;
-  const eyes = player && fogOn ? [{ x: player.pos.x, z: player.pos.z, R: sight() }, ...player.wards.map(w => ({ x: w.x, z: w.z, R: ITEMS.ward.vision }))] : null;
-  for (let iz = 0; iz < FOW_N; iz++) for (let ix = 0; ix < FOW_N; ix++) {
+  const eyes = player && fogOn ? eyesOf(player) : null;
+  const rows = Math.ceil(FOW_N / 3), z0 = fowRow, z1 = Math.min(FOW_N, fowRow + rows); fowRow = z1 >= FOW_N ? 0 : z1;
+  for (let iz = z0; iz < z1; iz++) for (let ix = 0; ix < FOW_N; ix++) {
     const i = iz * FOW_N + ix; let v = 1;
+    const x = r.x + (ix + 0.5) * cs, z = r.y + (iz + 0.5) * cs;
     if (eyes) {
-      const x = r.x + (ix + 0.5) * cs, z = r.y + (iz + 0.5) * cs; v = 0;
-      for (const c of eyes) { const d = Math.hypot(x - c.x, z - c.z); if (d < c.R && losClear(c.x, c.z, x, z)) { v = Math.max(v, Math.min(1, (c.R - d) / 1.6)); if (v >= 1) break; } }
-    }
-    fowCur[i] += (v - fowCur[i]) * 0.45;
-    const b = fowCur[i] * 255 | 0, i4 = i * 4; fowData[i4] = fowData[i4 + 1] = fowData[i4 + 2] = b;
-    D[i4 + 3] = (1 - fowCur[i]) * 165 | 0;
+      v = 0;
+      for (const c of eyes) { const d = Math.hypot(x - c.x, z - c.z); if (d < c.R && losClear(c.x, c.z, x, z) && terrainLOS(c.x, c.z, x, z)) { v = Math.max(v, Math.min(1, (c.R - d) / 1.6)); if (v >= 1) break; } }
+      if (v > 0.4) fowSeen[i] = 1;
+      else if (fowSeen[i] < 1 && sdArena(x, z) > 1.5) fowSeen[i] = 1; // the world beyond the arena is never shrouded
+    } else fowSeen[i] = 1;
+    fowCur[i] += (v - fowCur[i]) * 0.35;
+    const i4 = i * 4; fowData[i4] = fowCur[i] * 255 | 0; fowData[i4 + 1] = fowSeen[i] * 255 | 0; fowData[i4 + 2] = 0;
+    D[i4 + 3] = (1 - fowCur[i]) * (fowSeen[i] > 0.5 ? 150 : 250) | 0;
   }
-  fowTex.needsUpdate = true; fowCtx.putImageData(fowImg, 0, 0);
+  fowTex.needsUpdate = true; if (fowRow === 0) fowCtx.putImageData(fowImg, 0, 0);
 }
 
 // ------------------------------------------------------------------ texture helpers
@@ -4928,7 +5106,7 @@ const lavaMat = new THREE.ShaderMaterial({
       vec3 hot=mix(vec3(1.0,0.55,0.12),vec3(0.55,0.05,0.0),smoothstep(0.2,0.45,v));
       vec3 col=mix(hot*1.15,vec3(0.035,0.015,0.012),smoothstep(0.38,0.58,v));
       float d=length(vW.xz); col*=exp(-max(d-32.,0.)*0.035);
-      gl_FragColor=vec4(col*mix(0.27,1.,fowAt(vW.xz)),1.); }`,
+      gl_FragColor=vec4(col*fowK(vW.xz),1.); }`,
 });
 const waterMat = new THREE.ShaderMaterial({
   uniforms: { t: timeU, ...FOW_U }, vertexShader: WORLD_VS, transparent: true,
@@ -4936,7 +5114,15 @@ const waterMat = new THREE.ShaderMaterial({
     void main(){ vec2 p=vW.xz*0.35; float a=fbm(p+vec2(t*0.25,t*0.12)); float b=fbm(p*1.7-vec2(t*0.18,-t*0.1));
       float r=pow(smoothstep(0.55,0.8,a*b*2.0),2.0);
       vec3 col=mix(vec3(0.02,0.06,0.09),vec3(0.05,0.14,0.2),a)+vec3(0.5,0.65,0.9)*r*0.5;
-      gl_FragColor=vec4(col*mix(0.27,1.,fowAt(vW.xz)),0.9); }`,
+      gl_FragColor=vec4(col*fowK(vW.xz),0.9); }`,
+});
+// a cursed open grave: churning violet ghost-fire over a black pit
+const curseMat = new THREE.ShaderMaterial({
+  uniforms: { t: timeU, ...FOW_U }, vertexShader: WORLD_VS,
+  fragmentShader: `uniform float t; varying vec3 vW; ${NOISE_GLSL} ${FOW_GLSL}
+    void main(){ vec2 p=vW.xz*0.55; float q=fbm(p*1.7+vec2(t*0.3,-t*0.22)); float v=fbm(p+q*1.6-vec2(0.,t*0.35));
+      vec3 col=mix(vec3(0.02,0.0,0.03),vec3(0.55,0.15,0.95),smoothstep(0.45,0.85,v))+vec3(0.2,0.9,0.5)*pow(smoothstep(0.7,0.95,q),3.)*0.6;
+      gl_FragColor=vec4(col*fowK(vW.xz),1.); }`,
 });
 const iceMat = new THREE.ShaderMaterial({
   uniforms: { t: timeU, ...FOW_U }, vertexShader: WORLD_VS,
@@ -4944,13 +5130,13 @@ const iceMat = new THREE.ShaderMaterial({
     void main(){ vec2 p=vW.xz*0.3; float a=fbm(p*1.3); float c=1.0-smoothstep(0.0,0.03,abs(fbm(p*2.2)-0.5));
       float glint=pow(n(vW.xz*6.0+t*0.2),30.0);
       vec3 col=mix(vec3(0.12,0.22,0.32),vec3(0.35,0.52,0.66),a)+vec3(0.6,0.8,1.0)*c*0.35+glint*0.8;
-      gl_FragColor=vec4(col*0.75*mix(0.27,1.,fowAt(vW.xz)),1.); }`,
+      gl_FragColor=vec4(col*0.75*fowK(vW.xz),1.); }`,
 });
 const voidMat = new THREE.ShaderMaterial({
   uniforms: { t: timeU, ...FOW_U }, vertexShader: WORLD_VS,
   fragmentShader: `uniform float t; varying vec3 vW; ${NOISE_GLSL} ${FOW_GLSL}
     void main(){ float v=fbm(vW.xz*0.06+vec2(t*0.01,t*0.015)); vec3 col=mix(vec3(0.01,0.015,0.03),vec3(0.06,0.12,0.2),v*v);
-      gl_FragColor=vec4(col*mix(0.27,1.,fowAt(vW.xz)),1.); }`,
+      gl_FragColor=vec4(col*fowK(vW.xz),1.); }`,
 });
 // raze column: noisy shadow-fire, used in two layers (dark smoke + fire)
 function columnMat(dark) {
@@ -4961,7 +5147,7 @@ function columnMat(dark) {
     fragmentShader: `uniform float t, life, seed; varying vec2 vUv; varying vec3 vW; ${NOISE_GLSL} ${FOW_GLSL}
       void main(){ float y=vUv.y; float nn=fbm(vec2(vUv.x*7.0+seed, y*2.5 - t*5.0 - seed));
         float shape=pow(1.0-y, 1.4) * smoothstep(0.0,0.08,y);
-        float f=clamp(nn*1.6*shape - life*0.9, 0.0, 1.0); f*=mix(0.2,1.,fowAt(vW.xz));
+        float f=clamp(nn*1.6*shape - life*0.9, 0.0, 1.0); f*=fowAt(vW.xz);
         ${dark ? 'gl_FragColor=vec4(vec3(0.03,0.0,0.0), f*0.85);' : 'vec3 c=mix(vec3(0.5,0.02,0.0),vec3(1.0,0.45,0.1),f); gl_FragColor=vec4(c*f*2.2, f);'} }`,
   });
 }
@@ -4984,7 +5170,7 @@ class Particles {
     this.mat = new THREE.ShaderMaterial({
       uniforms: { uScale: { value: 600 }, ...FOW_U },
       vertexShader: `attribute float size; attribute float alpha; attribute vec3 color; varying vec3 vC; varying float vA; uniform float uScale; uniform sampler2D fowTex; uniform vec4 fowRect;
-        void main(){ vC=color; vA=alpha*mix(0.25,1.,texture2D(fowTex,(position.xz-fowRect.xy)/fowRect.zw).r); vec4 mv=modelViewMatrix*vec4(position,1.); gl_PointSize=size*uScale/-mv.z; gl_Position=projectionMatrix*mv; }`,
+        void main(){ vC=color; vA=alpha*texture2D(fowTex,(position.xz-fowRect.xy)/fowRect.zw).r; vec4 mv=modelViewMatrix*vec4(position,1.); gl_PointSize=size*uScale/-mv.z; gl_Position=projectionMatrix*mv; }`,
       fragmentShader: additive
         ? `varying vec3 vC; varying float vA; void main(){ float d=length(gl_PointCoord-.5); float a=smoothstep(.5,.0,d); a*=a; gl_FragColor=vec4(vC, a*vA*0.85); }`
         : `varying vec3 vC; varying float vA; void main(){ float d=length(gl_PointCoord-.5); float a=smoothstep(.5,.1,d); gl_FragColor=vec4(vC, a*vA*0.55); }`,
@@ -4993,8 +5179,9 @@ class Particles {
     this.points = new THREE.Points(g, this.mat); this.points.frustumCulled = false; this.points.renderOrder = additive ? 4 : 3;
     scene.add(this.points);
   }
-  spawn(x, y, z, vx, vy, vz, life, s0, s1, c0, c1, grav = 0, drag = 0) {
+  spawn(x, y, z, vx, vy, vz, life, s0, s1, c0, c1, grav = 0, drag = 0) { // y: height above the ground at (x, z)
     if (this.n >= this.max) return;
+    y += H(x, z);
     const i = this.n++, i3 = i * 3;
     this.pos[i3] = x; this.pos[i3 + 1] = y; this.pos[i3 + 2] = z;
     this.vel[i3] = vx; this.vel[i3 + 1] = vy; this.vel[i3 + 2] = vz;
@@ -5051,7 +5238,7 @@ const scorchPool = Array.from({ length: 24 }, () => poolMesh(scorchTex, 0xffffff
 const crackPool = Array.from({ length: 12 }, () => poolMesh(crackTex, 0xffffff, THREE.AdditiveBlending));
 let ringI = 0, scorchI = 0, crackI = 0;
 function addFx(mesh, dur, kind, x, z, s0, s1, op, color) {
-  mesh.visible = true; mesh.position.set(x, kind === 'scorch' ? 0.03 : kind === 'crack' ? 0.05 : 0.07, z);
+  mesh.visible = true; mesh.position.set(x, H(x, z) + (kind === 'scorch' ? 0.03 : kind === 'crack' ? 0.05 : 0.07), z);
   if (color !== undefined) mesh.material.color.set(color);
   mesh.rotation.z = rnd(0, 6.28);
   const e = fx.find(f => f.mesh === mesh);
@@ -5069,7 +5256,7 @@ let colI = 0;
 let shake = 0;
 
 function razeFx(x, z, power, dd) {
-  const c = columns[colI++ % columns.length]; c.t = 0; c.g.visible = true; c.g.position.set(x, 0, z);
+  const c = columns[colI++ % columns.length]; c.t = 0; c.g.visible = true; c.g.position.set(x, H(x, z), z);
   c.dark.material.uniforms.seed.value = c.fire.material.uniforms.seed.value = rnd(0, 50);
   c.fire.material.uniforms.t = c.dark.material.uniforms.t = timeU;
   c.dd = dd;
@@ -5086,7 +5273,7 @@ function razeFx(x, z, power, dd) {
   addFx(ringPool[ringI++ % ringPool.length], 0.38, 'ring', x, z, 0.4, CFG.razeR * 1.15, 0.8, dd ? 0x3a6aff : 0xff3a10);
   addFx(crackPool[crackI++ % crackPool.length], 1.6, 'crack', x, z, CFG.razeR * 1.1, CFG.razeR * 1.15, 1, dd ? 0x6a9aff : 0xffffff);
   addFx(scorchPool[scorchI++ % scorchPool.length], 3.5, 'scorch', x, z, CFG.razeR * 0.95, CFG.razeR * 0.95, 0.85);
-  const fl = flashLights[flashIdx++ % flashLights.length]; fl.l.position.set(x, 1.6, z); fl.l.color.set(dd ? 0x4a7aff : 0xff5a1a); fl.t = 0.4;
+  const fl = flashLights[flashIdx++ % flashLights.length]; fl.l.position.set(x, H(x, z) + 1.6, z); fl.l.color.set(dd ? 0x4a7aff : 0xff5a1a); fl.t = 0.4;
 }
 function clickFx(x, z) { addFx(ringPool[ringI++ % ringPool.length], 0.35, 'ring', x, z, 0.6, 0.15, 0.9, 0x3bff6a); }
 
@@ -5183,21 +5370,25 @@ function fallbackHero() {
 }
 // hero shadow: the skinned hero flattened onto the ground along the sun. The stencil keeps overlapping
 // triangles (and overlapping heroes) from darkening the same pixel twice.
-const HERO_SHADOW_Y = 0.025;
-const heroShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide,
-  stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilZPass: THREE.ReplaceStencilOperation });
-heroShadowMat.userData.fow = true; // skip the fog-of-war patch: project_vertex is replaced below
-heroShadowMat.onBeforeCompile = sh => {
-  sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', `vec4 wp = modelMatrix * vec4(transformed, 1.0);
-    const vec3 L = vec3(${SUN_DIR.x.toFixed(4)}, ${SUN_DIR.y.toFixed(4)}, ${SUN_DIR.z.toFixed(4)});
-    wp.xyz -= L * ((wp.y - ${HERO_SHADOW_Y}) / L.y);
-    vec4 mvPosition = viewMatrix * wp; gl_Position = projectionMatrix * mvPosition;`);
-};
-heroShadowMat.customProgramCacheKey = () => 'sfa-hero-shadow';
+// one material per hero, so each shadow lies on the ground under its own hero (terraces have height)
+function makeHeroShadowMat(groundY) {
+  const m = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide,
+    stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilZPass: THREE.ReplaceStencilOperation });
+  m.userData.fow = true; // skip the fog-of-war patch: project_vertex is replaced below
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uGroundY = groundY;
+    sh.vertexShader = 'uniform float uGroundY;\n' + sh.vertexShader.replace('#include <project_vertex>', `vec4 wp = modelMatrix * vec4(transformed, 1.0);
+      const vec3 L = vec3(${SUN_DIR.x.toFixed(4)}, ${SUN_DIR.y.toFixed(4)}, ${SUN_DIR.z.toFixed(4)});
+      wp.xyz -= L * ((wp.y - uGroundY) / L.y);
+      vec4 mvPosition = viewMatrix * wp; gl_Position = projectionMatrix * mvPosition;`);
+  };
+  m.customProgramCacheKey = () => 'sfa-hero-shadow';
+  return m;
+}
 function cloneHero() {
   const t = heroTemplate || fallbackHero();
   const c = t.clone(true); const mats = [], shadows = [];
-  let bones = null;
+  let bones = null; const groundY = { value: 0.025 }, shadowMat = makeHeroShadowMat(groundY);
   c.traverse(o => {
     if (!o.isMesh || o.userData.shadow) return;
     o.material = o.material.clone(); // (clone() drops onBeforeCompile, so the dissolve is added per unit)
@@ -5212,11 +5403,11 @@ function cloneHero() {
     bones = makeBones(); sk.add(bones[0]);
     c.updateMatrixWorld(true);
     const skel = new THREE.Skeleton(bones); sk.bind(skel);
-    const s = new THREE.SkinnedMesh(heroTemplate.userData.shadowGeo || o.geometry, heroShadowMat);
+    const s = new THREE.SkinnedMesh(heroTemplate.userData.shadowGeo || o.geometry, shadowMat);
     s.userData.shadow = true; s.renderOrder = 1; s.frustumCulled = false; sk.add(s); s.bind(skel, sk.bindMatrix);
     shadows.push(s);
   });
-  c.userData.mats = mats; c.userData.shadows = shadows;
+  c.userData.mats = mats; c.userData.shadows = shadows; c.userData.groundY = groundY; c.userData.shadowMat = shadowMat;
   c.userData.bones = bones && Object.fromEntries(bones.map(b => [b.name, b]));
   return c;
 }
@@ -5336,7 +5527,7 @@ function paintShadows(g, toC, casters, S) {
       const P = part.geo.attributes.position, I = part.geo.index, n = P.count, gx = new Float32Array(n), gz = new Float32Array(n);
       for (let i = 0; i < n; i++) {
         v.fromBufferAttribute(P, i).applyMatrix4(M);
-        const t = Math.max(0, v.y) / SUN_DIR.y, [x, z] = toC(v.x - SUN_DIR.x * t, v.z - SUN_DIR.z * t);
+        const t = Math.max(0, v.y - (o.y || 0)) / SUN_DIR.y, [x, z] = toC(v.x - SUN_DIR.x * t, v.z - SUN_DIR.z * t);
         gx[i] = x / 2; gz[i] = z / 2;
       }
       const tri = I ? I.array : null, cnt = tri ? tri.length : n;
@@ -5360,6 +5551,7 @@ function paintGround(m, casters = []) {
     molten: { base: '#1a1514', spot: [22, 16, 15], line: 'rgba(5,2,2,0.9)', blight: 'rgba(40,6,30,0.22)' },
     river: { base: '#232a1c', spot: [32, 38, 24], line: 'rgba(8,8,5,0.6)', blight: 'rgba(40,46,24,0.25)' },
     frozen: { base: '#3c4a5a', spot: [70, 84, 100], line: 'rgba(20,28,40,0.55)', blight: null },
+    grave: { base: '#191b16', spot: [30, 34, 26], line: 'rgba(6,6,5,0.7)', blight: 'rgba(40,50,30,0.22)' },
   }[m.theme];
   const color = canvasTex(S, (g) => {
     g.fillStyle = pal.base; g.fillRect(0, 0, S, S);
@@ -5383,6 +5575,13 @@ function paintGround(m, casters = []) {
       g.strokeStyle = 'rgba(48,38,24,0.55)'; g.lineWidth = 70;
       for (const [x1, z1, x2, z2] of [[-20, 14, 20, -14], [-22, -6, -4, -14], [22, 6, 4, 14]]) { const [a1, b1] = toC(x1, z1), [a2, b2] = toC(x2, z2); g.beginPath(); g.moveTo(a1, b1); g.quadraticCurveTo((a1 + a2) / 2 + rnd(-100, 100), (b1 + b2) / 2 + rnd(-100, 100), a2, b2); g.stroke(); }
     }
+    if (m.theme === 'grave') { // worn gravel paths into the hill, dead grass, rows of grave plots
+      g.lineCap = 'round'; g.strokeStyle = 'rgba(52,48,40,0.75)'; g.lineWidth = S / 26;
+      for (const [x1, z1, x2, z2] of [[0, -21, 0, 21], [-21, 0, 21, 0]]) { const [a1, b1] = toC(x1, z1), [a2, b2] = toC(x2, z2); g.beginPath(); g.moveTo(a1, b1); g.lineTo(a2, b2); g.stroke(); }
+      g.fillStyle = 'rgba(10,9,7,0.55)';
+      for (let i = 0; i < 46; i++) { const a = rnd(0, 6.28), r = rnd(10, 19), [cx, cz] = toC(Math.cos(a) * r, Math.sin(a) * r); g.save(); g.translate(cx, cz); g.rotate(a); g.fillRect(-S / 120, -S / 60, S / 60, S / 30); g.restore(); }
+      for (const h of m.hazards) { const [cx, cz] = toC((h.a[0] + h.b[0]) / 2, (h.a[1] + h.b[1]) / 2); g.fillStyle = 'rgba(0,0,0,0.85)'; g.beginPath(); g.ellipse(cx, cz, (h.r + 1.2) / W * S, (h.r + 0.9) / D * S, 0, 0, 7); g.fill(); }
+    }
     if (m.theme === 'frozen') { // frost patterns + ruined tile ring
       g.strokeStyle = 'rgba(230,240,255,0.25)'; for (let i = 0; i < 90; i++) crackPath(g, rnd(0, S), rnd(0, S), rnd(6, 16) | 0, rnd(0, 7), 2);
       const [cx, cz] = toC(0, 0); g.strokeStyle = 'rgba(30,40,60,0.6)'; g.lineWidth = 8;
@@ -5390,17 +5589,84 @@ function paintGround(m, casters = []) {
       for (let k = 0; k < 24; k++) { const a = k / 24 * 6.28; const [x1, z1] = toC(Math.cos(a) * 9, Math.sin(a) * 9), [x2, z2] = toC(Math.cos(a) * 15, Math.sin(a) * 15); g.beginPath(); g.moveTo(x1, z1); g.lineTo(x2, z2); g.stroke(); }
     }
     paintShadows(g, toC, casters, S);
+    for (const t of m.terraces || []) { // cliff ambient occlusion below, a worn lit lip on top
+      const path = () => { g.beginPath(); if (t.r !== undefined) { const [cx, cz] = toC(t.x, t.z); g.ellipse(cx, cz, t.r / W * S, t.r / D * S, 0, 0, 7); } else { const P = t.rect ? [[t.rect[0], t.rect[1]], [t.rect[2], t.rect[1]], [t.rect[2], t.rect[3]], [t.rect[0], t.rect[3]]] : t.poly; P.forEach(([x, z], i) => { const [a, b] = toC(x, z); i ? g.lineTo(a, b) : g.moveTo(a, b); }); g.closePath(); } };
+      g.save(); g.filter = `blur(${Math.round(S / 160)}px)`; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.lineWidth = S / 45; path(); g.stroke(); g.restore();
+      g.save(); g.strokeStyle = pal.lip || 'rgba(255,255,255,0.10)'; g.lineWidth = S / 300; path(); g.stroke(); g.restore();
+    }
     // rune circles
     for (const [x, z] of m.runes) { const [cx, cz] = toC(x, z); g.strokeStyle = 'rgba(0,0,0,0.6)'; g.lineWidth = 10; g.beginPath(); g.arc(cx, cz, 1.4 / W * S, 0, 7); g.stroke(); }
   }, true);
   const glow = canvasTex(S, (g) => {
     g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
     if (m.theme === 'molten') { g.strokeStyle = '#d02a08'; g.shadowColor = '#c01800'; g.shadowBlur = 10; g.globalAlpha = 0.5; for (let i = 0; i < 24; i++) crackPath(g, rnd(0, S), rnd(0, S), rnd(6, 14) | 0, rnd(0, 7), 1.5); }
-    for (const [x, z] of m.runes) { const [cx, cz] = toC(x, z); g.globalAlpha = 0.7; g.strokeStyle = m.theme === 'frozen' ? '#4aa0ff' : m.theme === 'river' ? '#50ffa0' : '#ff4a1a'; g.shadowColor = g.strokeStyle; g.shadowBlur = 16; g.lineWidth = 4; g.beginPath(); g.arc(cx, cz, 1.25 / W * S, 0, 7); g.stroke(); }
+    for (const [x, z] of m.runes) { const [cx, cz] = toC(x, z); g.globalAlpha = 0.7; g.strokeStyle = m.theme === 'frozen' ? '#4aa0ff' : m.theme === 'river' ? '#50ffa0' : m.theme === 'grave' ? '#9a6aff' : '#ff4a1a'; g.shadowColor = g.strokeStyle; g.shadowBlur = 16; g.lineWidth = 4; g.beginPath(); g.arc(cx, cz, 1.25 / W * S, 0, 7); g.stroke(); }
   }, true);
   return { color, glow, W, D };
 }
 
+// rock face texture for cliff walls: horizontal strata with vertical cracks
+function cliffTexture(theme) {
+  const [base, dark, light] = { molten: ['#1c1312', '#070303', '#3a2420'], river: ['#1e2219', '#080a06', '#38402c'], frozen: ['#3a4a5c', '#141c28', '#8aa4c0'], grave: ['#1d1d22', '#08080b', '#3a3a44'] }[theme] || ['#222', '#000', '#444'];
+  const t = canvasTex(256, (g) => {
+    g.fillStyle = base; g.fillRect(0, 0, 256, 256);
+    for (let y = 0; y < 256; y += rnd(6, 18)) { g.fillStyle = Math.random() < 0.5 ? dark : light; g.globalAlpha = rnd(0.15, 0.45); g.fillRect(0, y, 256, rnd(2, 7)); }
+    g.globalAlpha = 0.6; g.strokeStyle = dark; for (let i = 0; i < 40; i++) crackPath(g, rnd(0, 256), rnd(0, 256), rnd(3, 9) | 0, Math.PI / 2 + rnd(-0.4, 0.4), rnd(1, 3), 8);
+    g.globalAlpha = 1;
+  }, true);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+}
+function terraceShape(t) {
+  const s = new THREE.Shape(); // shape space: (x, -z), so after rotation.x = -PI/2 it lies flat in world xz
+  if (t.r !== undefined) { s.absarc(t.x, -t.z, t.r, 0, Math.PI * 2, false); return s; }
+  const P = t.rect ? [[t.rect[0], t.rect[1]], [t.rect[2], t.rect[1]], [t.rect[2], t.rect[3]], [t.rect[0], t.rect[3]]] : t.poly;
+  P.forEach(([x, z], i) => i ? s.lineTo(x, -z) : s.moveTo(x, -z)); s.closePath(); return s;
+}
+function buildTerraces(G, m, tex, own) {
+  if (!(m.terraces || []).length) return;
+  const cliffTex = own(cliffTexture(m.theme));
+  const wallMat = own(new THREE.MeshStandardMaterial({ map: cliffTex, color: 0x9a9a9a, roughness: 1, metalness: 0, emissive: m.theme === 'molten' ? 0x140301 : 0x000000 }));
+  // the painted ground continues onto every level, a touch brighter the higher it is, so levels read at a glance
+  const base = G.children[0].material, topMats = {};
+  const topFor = h => topMats[h] || (topMats[h] = own(Object.assign(base.clone(), { color: new THREE.Color(1, 1, 1).multiplyScalar(1 + h * 0.09) })));
+  const rockMat = own(new THREE.MeshStandardMaterial({ color: { molten: 0x120a09, river: 0x15180f, frozen: 0x2a3644, grave: 0x16161a }[m.theme] || 0x151515, roughness: 0.95, flatShading: true }));
+  const rockGeo = own(new THREE.DodecahedronGeometry(1, 0));
+  const rocks = [];
+  for (const t of m.terraces) {
+    const shp = terraceShape(t);
+    const top = new THREE.ShapeGeometry(shp, 40), pa = top.attributes.position, uv = top.attributes.uv;
+    for (let i = 0; i < pa.count; i++) uv.setXY(i, (pa.getX(i) + tex.W / 2) / tex.W, (pa.getY(i) + tex.D / 2) / tex.D);
+    const tm = new THREE.Mesh(top, topFor(t.h)); tm.rotation.x = -Math.PI / 2; tm.position.y = t.h + 0.002; G.add(tm);
+    const wall = new THREE.ExtrudeGeometry(shp, { depth: t.h + 0.1, bevelEnabled: false, curveSegments: 40 });
+    { const u = wall.attributes.uv; for (let i = 0; i < u.count; i++) u.setXY(i, u.getX(i) * 0.35, u.getY(i) * 0.35); }
+    const wm = new THREE.Mesh(wall, [own(new THREE.MeshBasicMaterial({ visible: false })), wallMat]); wm.rotation.x = -Math.PI / 2; wm.position.y = -0.1; G.add(wm);
+    // crags along the cliff foot and lip break up the clean extrusion, like WC3 cliff tiles
+    const pts = shp.getSpacedPoints(Math.max(12, Math.round(shp.getLength() / 1.1)));
+    for (const p of pts) {
+      const x = p.x, z = -p.y; if (onRamp(m, x, z, 1.2)) continue;
+      const s = rnd(0.35, 0.7);
+      rocks.push([x + rnd(-0.25, 0.25), rnd(0.1, t.h * 0.6), z + rnd(-0.25, 0.25), s, s * rnd(0.8, 1.6)]);
+      if (Math.random() < 0.35) rocks.push([x, t.h - 0.15, z, s * 0.6, s * 0.5]);
+    }
+  }
+  for (const r of m.ramps || []) { // a sloped slab from the low end to the high end, with rock flanks
+    const dx = r.b[0] - r.a[0], dz = r.b[1] - r.a[1], L = Math.hypot(dx, dz), px = -dz / L * r.w / 2, pz = dx / L * r.w / 2;
+    const v = [[r.a[0] - px, r.h0, r.a[1] - pz], [r.a[0] + px, r.h0, r.a[1] + pz], [r.b[0] + px, r.h1, r.b[1] + pz], [r.b[0] - px, r.h1, r.b[1] - pz]];
+    const pos = [], uvs = [];
+    const quad = (A, B, C, D) => { for (const q of [A, B, C, A, C, D]) { pos.push(q[0], q[1] + 0.004, q[2]); uvs.push((q[0] + tex.W / 2) / tex.W, (-q[2] + tex.D / 2) / tex.D); } };
+    quad(v[0], v[1], v[2], v[3]);
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); g.computeVertexNormals();
+    const rm = new THREE.Mesh(g, topFor((r.h0 + r.h1) / 2)); G.add(rm);
+    for (const side of [-1, 1]) for (let k = 0; k <= 4; k++) { const t2 = k / 4; rocks.push([r.a[0] + dx * t2 + side * px * 1.15, r.h0 + (r.h1 - r.h0) * t2 * 0.6, r.a[1] + dz * t2 + side * pz * 1.15, rnd(0.35, 0.6), rnd(0.4, 0.9)]); }
+  }
+  const im = new THREE.InstancedMesh(rockGeo, rockMat, rocks.length), M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  rocks.forEach(([x, y, z, s, sy], i) => { q.setFromEuler(e.set(rnd(0, 3), rnd(0, 3), rnd(0, 3))); M.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(s, sy, s)); im.setMatrixAt(i, M); });
+  G.add(im);
+}
+function onRamp(m, x, z, pad = 0) {
+  for (const r of m.ramps || []) { const dx = r.b[0] - r.a[0], dz = r.b[1] - r.a[1], L = Math.hypot(dx, dz), t = ((x - r.a[0]) * dx + (z - r.a[1]) * dz) / (L * L), side = Math.abs((x - r.a[0]) * dz - (z - r.a[1]) * dx) / L; if (t > -0.15 && t < 1.15 && side < r.w / 2 + pad) return true; }
+  return false;
+}
 function clearMap() {
   if (!mapGroup) return;
   scene.remove(mapGroup);
@@ -5414,11 +5680,12 @@ function buildMap(id) {
   const m = MAP, G = new THREE.Group(); mapGroup = G; scene.add(G);
   G.userData.owned = [];
   const own = x => { G.userData.owned.push(x); return x; };
-  { const ext = Math.max(m.hx, m.hz) + 4; FOW_U.fowRect.value.set(-ext, -ext, ext * 2, ext * 2); fowCur.fill(0); fowT = 0; }
+  { const ext = Math.max(m.hx, m.hz) + 4; FOW_U.fowRect.value.set(-ext, -ext, ext * 2, ext * 2); fowCur.fill(0); fowSeen.fill(0); fowT = 0; }
+  buildTerrain(m); buildNav(m);
   scene.background = new THREE.Color(m.sky); scene.fog.color.set(m.fog[0]); scene.fog.density = m.fog[1];
   hemi.color.set(m.hemi[0]); hemi.groundColor.set(m.hemi[1]); hemi.intensity = m.hemi[2];
   sun.color.set(m.sun[0]); sun.intensity = m.sun[1]; renderer.toneMappingExposure = m.exposure;
-  glowLight.color.set(m.theme === 'molten' ? 0xff3a08 : m.theme === 'river' ? 0x2a6aff : 0x6ab0ff);
+  glowLight.color.set(m.theme === 'molten' ? 0xff3a08 : m.theme === 'river' ? 0x2a6aff : m.theme === 'grave' ? 0x6a3aff : 0x6ab0ff);
   glowLight.intensity = m.theme === 'molten' ? 0.8 : 0.35;
 
   // props first: their shadows are baked into the ground texture below
@@ -5430,8 +5697,8 @@ function buildMap(id) {
   }
   if (m.theme === 'frozen') for (const [x, z] of edgePoints(22, 1.2)) put('ice', { x, y: -0.2, z, h: rnd(1.6, 2.8), rot: rnd(0, 6.28) });
   const casters = [];
-  for (const o of m.obstacles) { const p = { kind: o.prop, x: o.x, z: o.z, h: o.h, rot: o.rot !== undefined ? o.rot : rnd(0, 6.28) }; put(o.prop, p); casters.push(p); }
-  for (const o of m.decor) if (!o.opt || PROP_TEMPLATES[o.prop]) put(o.prop, { x: o.x, y: m.edge === 'lava' ? -0.8 : 0, z: o.z, h: o.h, rot: o.rot || 0 });
+  for (const o of m.obstacles) { const p = { kind: o.prop, x: o.x, y: H(o.x, o.z), z: o.z, h: o.h, rot: o.rot !== undefined ? o.rot : rnd(0, 6.28) }; put(o.prop, p); casters.push(p); }
+  for (const o of m.decor) if (!o.opt || PROP_TEMPLATES[o.prop]) put(o.prop, { x: o.x, y: m.edge === 'lava' ? -0.8 : H(o.x, o.z), z: o.z, h: o.h, rot: o.rot || 0 });
 
   // ground
   const tex = paintGround(m, casters);
@@ -5449,6 +5716,7 @@ function buildMap(id) {
   const cliff = new THREE.Mesh(cliffGeo, [own(new THREE.MeshBasicMaterial({ visible: false })), cliffMat]);
   cliff.rotation.x = Math.PI / 2; cliff.position.y = -0.01; G.add(cliff);
 
+  buildTerraces(G, m, tex, own);
   // outside
   if (m.edge === 'lava') { const lava = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), lavaMat); lava.rotation.x = -Math.PI / 2; lava.position.y = -1.4; G.add(lava); }
   if (m.edge === 'abyss') { const v = new THREE.Mesh(new THREE.PlaneGeometry(300, 300), voidMat); v.rotation.x = -Math.PI / 2; v.position.y = -18; G.add(v); }
@@ -5459,6 +5727,7 @@ function buildMap(id) {
   // hazard ribbons
   for (const h of m.hazards) {
     const dx = h.b[0] - h.a[0], dz = h.b[1] - h.a[1], len = Math.hypot(dx, dz);
+    if (h.type === 'curse') { const pool = new THREE.Mesh(new THREE.CircleGeometry(h.r + len / 2, 40), curseMat); pool.rotation.x = -Math.PI / 2; pool.position.set((h.a[0] + h.b[0]) / 2, 0.02, (h.a[1] + h.b[1]) / 2); pool.renderOrder = 1; G.add(pool); continue; }
     const rib = new THREE.Mesh(new THREE.PlaneGeometry(len, h.r * 2), h.type === 'lava' ? lavaMat : waterMat);
     rib.rotation.x = -Math.PI / 2; rib.rotation.z = -Math.atan2(dz, dx);
     rib.position.set((h.a[0] + h.b[0]) / 2, h.type === 'lava' ? 0.02 : 0.015, (h.a[1] + h.b[1]) / 2); rib.renderOrder = 1; G.add(rib);
@@ -5468,7 +5737,7 @@ function buildMap(id) {
     const slab = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.3, 4.2), bm); slab.position.set(x, 0.05, z); G.add(slab);
     for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.7, 0.4), bm); post.position.set(x + sx * 2.1, 0.35, z - 2); G.add(post); const p2 = post.clone(); p2.position.z = z + 2; G.add(p2); }
   });
-  (m.ice || []).forEach(c => { const ice = new THREE.Mesh(new THREE.CircleGeometry(c.r, 64), iceMat); ice.rotation.x = -Math.PI / 2; ice.position.set(c.x, 0.02, c.z); G.add(ice); });
+  (m.ice || []).forEach(c => { const ice = new THREE.Mesh(new THREE.CircleGeometry(c.r, 64), iceMat); ice.rotation.x = -Math.PI / 2; ice.position.set(c.x, H(c.x, c.z) + 0.02, c.z); G.add(ice); });
 
   // rim rocks / walls
   const rockMat = own(new THREE.MeshStandardMaterial({ color: m.theme === 'frozen' ? 0x161c26 : m.theme === 'river' ? 0x14160f : 0x070505, roughness: 0.95, metalness: 0.05, flatShading: true }));
@@ -5532,11 +5801,16 @@ class Unit {
   dispose() {
     scene.remove(this.root); scene.remove(this.tele); this.label.remove();
     for (const m of this.model.userData.mats) m.dispose();
-    this.ring.material.dispose(); this.blob.material.dispose(); this.tele.material.dispose();
+    this.ring.material.dispose(); this.blob.material.dispose(); this.tele.material.dispose(); this.model.userData.shadowMat.dispose();
     for (const w of this.wards) removeWard(w);
   }
   get speed() { let s = CFG.speed * (this.buffs.haste > 0 ? 1.6 : 1) * (1 + this.mod.spd + (this.invis > 0 ? ITEMS.blade.speed : 0)) * (this.slowT > 0 ? 1 - CFG.ultSlow : 1); const h = hazardAt(this.pos.x, this.pos.z); if (h && h.type === 'water') s *= 0.85; return s; }
-  moveTo(x, z) { if (!this.alive || this.cast) return; this.moveTarget = new THREE.Vector2(x, z); this.faceAngle = null; }
+  // walk to (x, z) along an A* path (around cliffs via ramps, around obstacles; lava only when urgent)
+  moveTo(x, z, urgent = false) {
+    if (!this.alive || this.cast || this.ult) return;
+    this.path = findPath(this.pos.x, this.pos.z, x, z, !urgent);
+    const [px, pz] = this.path.shift(); this.moveTarget = new THREE.Vector2(px, pz); this.faceAngle = null;
+  }
   razeCenter(slot, facing = this.facing) {
     const d = CFG.razeDist[slot]; return new THREE.Vector2(this.pos.x + Math.sin(facing) * d, this.pos.z + Math.cos(facing) * d);
   }
@@ -5560,22 +5834,9 @@ class Unit {
       if (w && w.charges < ITEMS.wand.maxCharges && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < ITEMS.wand.chargeRange && canSee(o, this.pos.x, this.pos.z)) w.charges++;
     }
     const c = this.razeCenter(slot);
-    this.tele.position.set(c.x, 0.08, c.y); this.tele.visible = true;
+    this.tele.position.set(c.x, H(c.x, c.y) + 0.08, c.y); this.tele.visible = true;
     sfx('cast', this.isPlayer ? 0.9 : earVol(this.pos) * 0.6, this.pos);
     return true;
-  }
-  steer(dir) { // slide around obstacles in the way (WC3-style pathing)
-    for (const o of MAP.obstacles) {
-      const ox = o.x - this.pos.x, oz = o.z - this.pos.z, d = Math.hypot(ox, oz);
-      if (d > 3.2 || d < 1e-4) continue;
-      if (ox * dir.x + oz * dir.y <= 0) continue;
-      const perp = Math.abs(dir.x * oz - dir.y * ox), need = o.r + CFG.unitR + 0.25;
-      if (perp < need) {
-        let px = dir.y, pz = -dir.x; if (px * ox + pz * oz > 0) { px = -px; pz = -pz; }
-        const k = (1 - d / 3.2) * 1.6 + 0.2; dir.x += px * k; dir.y += pz * k; dir.normalize();
-      }
-    }
-    return dir;
   }
   step(dt, input) {
     this.prev.copy(this.pos);
@@ -5603,7 +5864,9 @@ class Unit {
       if (input && (input.x || input.z)) { dir = new THREE.Vector2(input.x, input.z).normalize(); this.moveTarget = null; }
       else if (this.moveTarget) {
         const dx = this.moveTarget.x - this.pos.x, dz = this.moveTarget.y - this.pos.z, d = Math.hypot(dx, dz);
-        if (d < 0.08) this.moveTarget = null; else dir = this.steer((this._dir || (this._dir = new THREE.Vector2())).set(dx / d, dz / d));
+        if (d < (this.path && this.path.length ? 0.35 : 0.08)) { // waypoint reached: on to the next one
+          if (this.path && this.path.length) { const [px, pz] = this.path.shift(); this.moveTarget.set(px, pz); } else this.moveTarget = null;
+        } else dir = (this._dir || (this._dir = new THREE.Vector2())).set(dx / d, dz / d); // the A* path already avoids obstacles
       }
       let target = this.faceAngle;
       if (dir) target = Math.atan2(dir.x, dir.y);
@@ -5617,18 +5880,22 @@ class Unit {
     const want = this._want || (this._want = new THREE.Vector2()); want.set(0, 0);
     if (dir) { const ad = Math.abs(wrap(Math.atan2(dir.x, dir.y) - this.facing)); const k = ad < 0.35 ? 1 : ad < 1.2 ? 0.35 : 0; want.set(dir.x, dir.y).multiplyScalar(this.speed * k); }
     if (onIce(this.pos.x, this.pos.z)) this.slide.lerp(want, 1 - Math.exp(-1.4 * dt)); else this.slide.copy(want);
-    this.pos.x += this.slide.x * dt; this.pos.z += this.slide.y * dt;
+    { const ox = this.pos.x, oz = this.pos.z, nx = ox + this.slide.x * dt, nz = oz + this.slide.y * dt;
+      if (canStep(ox, oz, nx, nz)) { this.pos.x = nx; this.pos.z = nz; }
+      else if (canStep(ox, oz, nx, oz)) { this.pos.x = nx; this.slide.y = 0; }
+      else if (canStep(ox, oz, ox, nz)) { this.pos.z = nz; this.slide.x = 0; }
+      else this.slide.set(0, 0); }
     // obstacles
     for (const o of MAP.obstacles) {
       const dx = this.pos.x - o.x, dz = this.pos.z - o.z, d = Math.hypot(dx, dz), m = o.r + CFG.unitR;
-      if (d < m && d > 1e-4) { this.pos.x = o.x + dx / d * m; this.pos.z = o.z + dz / d * m; if (onIce(this.pos.x, this.pos.z)) this.slide.multiplyScalar(-0.4); }
+      if (d < m && d > 1e-4) { const nx = o.x + dx / d * m, nz = o.z + dz / d * m; if (canStep(this.pos.x, this.pos.z, nx, nz)) { this.pos.x = nx; this.pos.z = nz; } else { this.pos.x = this.prev.x; this.pos.z = this.prev.z; } if (onIce(this.pos.x, this.pos.z)) this.slide.multiplyScalar(-0.4); }
     }
     // edge
     const sd = sdArena(this.pos.x, this.pos.z), lim = MAP.edge === 'wall' ? -0.6 : 2.5;
     if (sd > lim) { const e = 0.01, gx = sdArena(this.pos.x + e, this.pos.z) - sd, gz = sdArena(this.pos.x, this.pos.z + e) - sd, gl = Math.hypot(gx, gz) || 1; this.pos.x -= gx / gl * (sd - lim); this.pos.z -= gz / gl * (sd - lim); }
     let dps = 0;
     if (MAP.edge !== 'wall' && sd > -0.2) dps = MAP.edgeDps;
-    const hz = hazardAt(this.pos.x, this.pos.z); if (hz && hz.type === 'lava') dps = Math.max(dps, 150);
+    const hz = hazardAt(this.pos.x, this.pos.z); if (hz && hz.type === 'lava') dps = Math.max(dps, 150); if (hz && hz.type === 'curse') { dps = Math.max(dps, 120); this.slowT = Math.max(this.slowT, 0.3); }
     if (dps) {
       this.hp -= dps * dt;
       if (Math.random() < 0.5) {
@@ -5742,7 +6009,9 @@ class Unit {
     const alive = this.alive;
     this.seen = this === player || !player || canSeeUnit(player, this);
     this.root.visible = this.seen;
-    this.root.position.set(this.pos.x, 0, this.pos.z);
+    const gy = H(this.pos.x, this.pos.z); this.gy = this.gy === undefined || Math.abs(this.gy - gy) > 1 ? gy : this.gy + (gy - this.gy) * Math.min(1, dt * 14);
+    this.root.position.set(this.pos.x, this.gy, this.pos.z);
+    this.model.userData.groundY.value = this.gy + 0.025;
     this.flash = Math.max(0, this.flash - dt * 5);
     const m = this.model;
     for (const s of m.userData.shadows) s.visible = heroShadows;
@@ -5834,7 +6103,7 @@ function resolveRaze(u, slot) {
   u.veilBonus = false;
   for (const o of units) {
     if (o === u || !o.alive || o.prot > 0) continue;
-    if (Math.hypot(o.pos.x - c.x, o.pos.z - c.y) > CFG.razeR + CFG.unitR) continue;
+    if (Math.hypot(o.pos.x - c.x, o.pos.z - c.y) > CFG.razeR + CFG.unitR || Math.abs(H(o.pos.x, o.pos.z) - H(c.x, c.y)) > 0.9) continue;
     if (o.immune > 0 || o.cyclone > 0) { floatText(o.pos, o.immune > 0 ? 'IMMUNE' : 'MISS', '#ffe27a'); continue; }
     let extra = 0;
     if (u.mod.scepter) { // Shadow Mark: every earlier hit still burning on this target adds damage, then stacks again
@@ -5856,7 +6125,7 @@ function releaseRequiem(u) {
   addFx(ringPool[ringI++ % ringPool.length], 0.6, 'ring', u.pos.x, u.pos.z, 0.6, CFG.ultRange * 1.05, 0.9, 0xff2a10);
   for (let k = 0; k < 120; k++) { const a = rnd(0, 7), sp = rnd(4, 14); particles.spawn(u.pos.x, rnd(0.4, 2.2), u.pos.z, Math.cos(a) * sp, rnd(0.5, 4), Math.sin(a) * sp, rnd(0.3, 0.7), rnd(0.5, 1.1), 0.05, [1, 0.3, 0.1], [0.25, 0, 0.05], -2, 2.5); }
   for (let k = 0; k < 30; k++) { const a = rnd(0, 7); smoke.spawn(u.pos.x + Math.cos(a), rnd(0.5, 2), u.pos.z + Math.sin(a), Math.cos(a) * 3, rnd(0.5, 2), Math.sin(a) * 3, 1.6, 1.4, 3.6, SMOKE0, SMOKE1, 0, 1); }
-  const fl = flashLights[flashIdx++ % flashLights.length]; fl.l.position.set(u.pos.x, 2, u.pos.z); fl.l.color.set(0xff2a10); fl.t = 0.9;
+  const fl = flashLights[flashIdx++ % flashLights.length]; fl.l.position.set(u.pos.x, H(u.pos.x, u.pos.z) + 2, u.pos.z); fl.l.color.set(0xff2a10); fl.t = 0.9;
   if (player) { const d = Math.hypot(u.pos.x - player.pos.x, u.pos.z - player.pos.z); if (d < CFG.ultRange) addShake(0.2); if (u === player) screenFlash('#ff2a10', 0.35); }
 }
 function updateRequiem(st) {
@@ -5904,7 +6173,7 @@ function kill(o, src, env) {
   for (let i = 0; i < 70; i++) { const a = rnd(0, 7), s = rnd(1, 6); particles.spawn(o.pos.x, rnd(0.4, 2), o.pos.z, Math.cos(a) * s, rnd(1, 7), Math.sin(a) * s, rnd(0.6, 1.2), rnd(0.6, 1.2), 0.1, [1, 0.4, 0.15], [0.2, 0, 0.05], -3, 1.5); }
   for (let i = 0; i < 14; i++) smoke.spawn(o.pos.x + rnd(-0.5, 0.5), rnd(0.5, 1.5), o.pos.z + rnd(-0.5, 0.5), rnd(-0.5, 0.5), rnd(1, 2), rnd(-0.5, 0.5), 1.6, 1.4, 3, SMOKE0, SMOKE1, 0, 0.5);
   sfx('death', o.isPlayer ? 1 : earVol(o.pos), o.pos);
-  const how = MAP.edge === 'abyss' ? 'into the abyss' : 'into the lava';
+  const how = MAP.edge === 'abyss' ? 'into the abyss' : MAP.theme === 'grave' ? 'into a cursed grave' : 'into the lava';
   let msg;
   if (src && src !== o) {
     src.kills++; src.streak++; src.souls = Math.min(CFG.maxSouls, src.souls + 4);
@@ -5925,8 +6194,9 @@ function kill(o, src, env) {
 function freeSpot(margin) {
   for (let i = 0; i < 200; i++) {
     const x = rnd(-MAP.hx, MAP.hx), z = rnd(-MAP.hz, MAP.hz);
-    if (sdArena(x, z) > -margin || hazardAt(x, z) && hazardAt(x, z).type === 'lava') continue;
+    if (sdArena(x, z) > -margin || hazardAt(x, z) && hazardAt(x, z).type !== 'water') continue;
     if (MAP.obstacles.some(o => Math.hypot(o.x - x, o.z - z) < o.r + 1.2)) continue;
+    if (NAV.walkSafe && !navOK(NAV.walkSafe, ...navCell(x, z))) continue;
     return new THREE.Vector3(x, 0, z);
   }
   return new THREE.Vector3(0, 0, 0);
@@ -5953,7 +6223,7 @@ const orbTmp = new THREE.Vector3();
 function updateOrbs(dt) {
   for (let i = orbs.length - 1; i >= 0; i--) {
     const o = orbs[i]; o.t += dt;
-    const d = orbTmp.set(o.to.pos.x - o.p.x, 1.3 - o.p.y, o.to.pos.z - o.p.z), dist = d.length();
+    const d = orbTmp.set(o.to.pos.x - o.p.x, 1.3 - o.p.y, o.to.pos.z - o.p.z), dist = d.length(); // o.p.y: height above ground
     o.v.multiplyScalar(Math.max(0, 1 - 2.5 * dt)).add(d.normalize().multiplyScalar(40 * dt * Math.min(1, o.t * 2)));
     o.p.addScaledVector(o.v, dt);
     for (let n = emitN(60, dt); n > 0; n--) particles.spawn(o.p.x, o.p.y, o.p.z, 0, 0, 0, 0.35, 0.7, 0.05, [1, 0.55, 0.3], [0.6, 0, 0.2], 0, 0);
@@ -5972,7 +6242,7 @@ const runeLight = new THREE.PointLight(0xff0000, 0, 7, 2); runeLight.position.y 
 function spawnRune() {
   const spot = MAP.runes[Math.random() * MAP.runes.length | 0], types = Object.keys(RUNES), type = types[Math.random() * types.length | 0];
   rune = { x: spot[0], z: spot[1], type }; const R = RUNES[type];
-  runeMesh.position.set(rune.x, 0, rune.z); runeMesh.visible = true; runeLight.position.set(rune.x, 1.2, rune.z); runeLight.intensity = 1.4;
+  runeMesh.position.set(rune.x, H(rune.x, rune.z), rune.z); runeMesh.visible = true; runeLight.position.set(rune.x, H(rune.x, rune.z) + 1.2, rune.z); runeLight.intensity = 1.4;
   runeGem.material.emissive.set(R.color); runeRing.material.color.set(R.color); runeLight.color.set(R.color);
   const key = 'rune' + { haste: 'Haste', dd: 'Dd', regen: 'Regen' }[type];
   if (PROP_TEMPLATES[key]) { // carved rune stone from Meshy instead of the plain gem
@@ -6102,7 +6372,7 @@ const wardStaffGeo = new THREE.CylinderGeometry(0.035, 0.055, 1.2, 6).translate(
 const wardStaffMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.9 }), wardEyeMat = new THREE.MeshBasicMaterial({ color: 0xffb020 }); wardEyeMat.color.multiplyScalar(2.2); // bright enough to read as glowing after tone mapping
 function placeWard(u, x, z) {
   if (u.wards.length >= ITEMS.ward.max) removeWard(u.wards[0]);
-  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const g = new THREE.Group(); g.position.set(x, H(x, z), z);
   if (PROP_TEMPLATES.ward) { g.add(makeProp('ward', 1.6)); g.add(new THREE.Group()); } // keep children[1] for the bob
   else { g.add(new THREE.Mesh(wardStaffGeo, wardStaffMat)); const eye = new THREE.Mesh(wardEyeGeo, wardEyeMat); eye.position.y = 1.35; g.add(eye); }
   const ring = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: 0xffd040, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.18 }));
@@ -6122,10 +6392,6 @@ function updateWards(dt) {
 }
 
 // ------------------------------------------------------------------ bots
-function pathCrossesLava(ax, az, bx, bz) {
-  for (let i = 1; i < 12; i++) { const t = i / 12, h = hazardAt(ax + (bx - ax) * t, az + (bz - az) * t); if (h && h.type === 'lava') return true; }
-  return false;
-}
 class Bot {
   constructor(u, d) { this.u = u; this.d = d; this.think = rnd(0, 0.5); this.strafe = Math.random() < 0.5 ? 1 : -1; this.target = null; this.pendingCast = -1; this.castDelay = 0; this.shopT = rnd(0.5, 2); this.fleeT = 0; }
   // ---- items: shopping, then using them when they help
@@ -6201,7 +6467,7 @@ class Bot {
     this.think = D.react * rnd(0.6, 1.4);
     // escape lava immediately
     const hz = hazardAt(u.pos.x, u.pos.z);
-    if (hz && hz.type === 'lava') { const side = u.pos.z >= 0 ? 1 : -1; u.moveTo(u.pos.x, u.pos.z + side * 3); return; }
+    if (hz && hz.type !== 'water') { const side = u.pos.z >= 0 ? 1 : -1; u.moveTo(u.pos.x, u.pos.z + side * 3, true); return; }
     // dodge incoming razes (or answer them with an item)
     for (const e of units) {
       if (e === u || !e.alive || !e.cast || !canSee(u, e.pos.x, e.pos.z)) continue;
@@ -6237,7 +6503,12 @@ class Bot {
     const t = this.target;
     if (!t) {
       if (this.lastSeen && gameTime - this.lastSeen.t < 3 && Math.hypot(this.lastSeen.x - u.pos.x, this.lastSeen.z - u.pos.z) > 1.5) { this.goTo(this.lastSeen.x, this.lastSeen.z); return; }
-      if (!this.wander || Math.hypot(this.wander.x - u.pos.x, this.wander.z - u.pos.z) < 1.5 || Math.random() < 0.02) this.wander = freeSpot(3);
+      if (!this.wander || Math.hypot(this.wander.x - u.pos.x, this.wander.z - u.pos.z) < 1.5 || Math.random() < 0.02) {
+        this.wander = freeSpot(3);
+        if ((MAP.terraces || []).length && Math.random() < 0.45) { // look for a spot on high ground
+          for (let k = 0; k < 20; k++) { const p = freeSpot(3); if (H(p.x, p.z) > 0.5) { this.wander = p; break; } }
+        }
+      }
       this.goTo(this.wander.x, this.wander.z); return;
     }
     { // close the gap: blink to mid-raze range, or slip in under the veil
@@ -6266,21 +6537,24 @@ class Bot {
     }
     if (Math.random() < 0.08) this.strafe *= -1;
     const want = best >= 0 ? CFG.razeDist[best] : 8.5;
-    const nx = dx / d, nz = dz / d;
-    this.goTo(px - nx * want - nz * this.strafe * 1.4, pz - nz * want + nx * this.strafe * 1.4);
+    // stand at raze range from the target; among a few spots on that ring, prefer high ground (better vision,
+    // and enemies below can't see you) the smarter the bot is
+    const baseA = Math.atan2(u.pos.x - px, u.pos.z - pz);
+    let gx = 0, gz = 0, gScore = -1e9;
+    for (const off of [0, 0.5, -0.5, 1.0, -1.0]) {
+      const a = baseA + off + this.strafe * 0.18, x = px + Math.sin(a) * want, z = pz + Math.cos(a) * want;
+      if (sdArena(x, z) > -1.6 || (hazardAt(x, z) && hazardAt(x, z).type !== 'water')) continue;
+      const score = H(x, z) * 3 * D.lead - Math.abs(off) * 1.5 - Math.hypot(x - u.pos.x, z - u.pos.z) * 0.15;
+      if (score > gScore) { gScore = score; gx = x; gz = z; }
+    }
+    if (gScore > -1e9) this.goTo(gx, gz); else this.goTo(px - (dx / d) * want, pz - (dz / d) * want);
   }
   goTo(x, z, urgent) {
     const u = this.u;
     for (let i = 0; i < 20 && sdArena(x, z) > -1.6; i++) { x *= 0.92; z *= 0.92; }
-    const h = hazardAt(x, z); if (h && h.type === 'lava') z += (z >= 0 ? 1 : -1) * (h.r + 1 - Math.abs(z));
-    if (!urgent && MAP.bridges && pathCrossesLava(u.pos.x, u.pos.z, x, z)) {
-      let bb = null, bc = 1e9;
-      for (const [bx, bz] of MAP.bridges) { const c = Math.hypot(bx - u.pos.x, bz - u.pos.z) + Math.hypot(x - bx, z - bz); if (c < bc) { bc = c; bb = [bx, bz]; } }
-      const onBridge = Math.abs(u.pos.x - bb[0]) < 1.4 && Math.abs(u.pos.z) < 3.5;
-      if (!onBridge) { x = bb[0]; z = bb[1] + (u.pos.z >= 0 ? 2.6 : -2.6); }
-      else { x = bb[0]; z = u.pos.z >= 0 ? -3 : 3; }
-    }
-    u.moveTo(x, z);
+    // re-path only when the destination really changed: A* is cheap but not free
+    if (this.lastGoal && Math.hypot(this.lastGoal[0] - x, this.lastGoal[1] - z) < 0.8 && u.moveTarget && gameTime - this.lastGoal[2] < 1) return;
+    this.lastGoal = [x, z, gameTime]; u.moveTo(x, z, urgent);
   }
 }
 let bots = [];
@@ -6291,7 +6565,10 @@ const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(), plane = new THRE
 function groundPoint(e) {
   mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(mouse, camera); const p = new THREE.Vector3();
-  return ray.ray.intersectPlane(plane, p) ? p : null;
+  // march the ray: intersect the plane at the ground height found last time, a few times over
+  plane.constant = 0; if (!ray.ray.intersectPlane(plane, p)) return null;
+  for (let i = 0; i < 4; i++) { plane.constant = -H(p.x, p.z); if (!ray.ray.intersectPlane(plane, p)) return null; }
+  return p;
 }
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 renderer.domElement.addEventListener('mousedown', e => {
@@ -6310,7 +6587,7 @@ addEventListener('mouseup', e => { if (e.button === 2) rightDown = false; });
 let cursor = null; // ground point under the mouse, for quick-cast items
 renderer.domElement.addEventListener('mousemove', e => {
   cursor = groundPoint(e);
-  if (rightDown && state === 'play' && player) { const p = groundPoint(e); if (p) player.moveTo(p.x, p.z); }
+  if (rightDown && state === 'play' && player && performance.now() - (player.lastDragPath || 0) > 120) { const p = groundPoint(e); if (p) { player.moveTo(p.x, p.z); player.lastDragPath = performance.now(); } }
 });
 // zoom: proportional to the scroll amount so a trackpad's tiny momentum events barely move it; never while over UI
 let wheelLast = 0;
@@ -6328,7 +6605,7 @@ addEventListener('keydown', e => {
   if (k >= '1' && k <= '6') playerUseItem(+k - 1);
   if (k === 'b') toggleShop();
   if (k === 'r') { const r = player.castUlt(); if (r !== true) showErr(r); }
-  if (k === 's' && settings.move === 'mouse') { player.moveTarget = null; }
+  if (k === 's' && settings.move === 'mouse') { player.moveTarget = null; player.path = null; }
   if (k === 'm') { AUD.muted = !AUD.muted; announce('', AUD.muted ? 'Sound muted (M)' : 'Sound on (M)'); }
   if (k === 'escape') { if (shopOpen) toggleShop(false); else pauseToMenu(); }
 });
@@ -6434,7 +6711,7 @@ function updateShop() {
 }
 const mm = $('minimap').getContext('2d'); const slots = [...document.querySelectorAll('.slot')];
 const tmpV = new THREE.Vector3();
-function project(p, y) { tmpV.set(p.x, y, p.z).project(camera); return [(tmpV.x * 0.5 + 0.5) * innerWidth, (-tmpV.y * 0.5 + 0.5) * innerHeight, tmpV.z]; }
+function project(p, y) { tmpV.set(p.x, y + H(p.x, p.z), p.z).project(camera); return [(tmpV.x * 0.5 + 0.5) * innerWidth, (-tmpV.y * 0.5 + 0.5) * innerHeight, tmpV.z]; }
 let hudT = 0, mmT = 0, lastBuffs = '';
 function updateHud(dt) {
   for (const u of units) {
@@ -6483,14 +6760,16 @@ function drawMinimap() {
   const S = 180, ext = Math.max(MAP.hx, MAP.hz) + 1, k = (S / 2 - 6) / ext, X = x => S / 2 + x * k;
   mm.clearRect(0, 0, S, S);
   mm.save(); mm.beginPath(); mm.arc(S / 2, S / 2, S / 2 - 1, 0, 7); mm.clip();
-  mm.fillStyle = MAP.theme === 'molten' ? '#3a1408' : MAP.theme === 'river' ? '#0c0f14' : '#05080e'; mm.fillRect(0, 0, S, S);
-  mm.fillStyle = MAP.theme === 'frozen' ? '#46566a' : MAP.theme === 'river' ? '#1e2a16' : '#2a1d18';
+  mm.fillStyle = MAP.theme === 'molten' ? '#3a1408' : MAP.theme === 'river' || MAP.theme === 'grave' ? '#0c0f14' : '#05080e'; mm.fillRect(0, 0, S, S);
+  mm.fillStyle = MAP.theme === 'frozen' ? '#46566a' : MAP.theme === 'river' ? '#1e2a16' : MAP.theme === 'grave' ? '#1e221c' : '#2a1d18';
   mm.beginPath();
   if (MAP.r >= Math.min(MAP.hx, MAP.hz)) mm.arc(S / 2, S / 2, MAP.hx * k, 0, 7);
   else { const hx = MAP.hx * k, hz = MAP.hz * k, r = MAP.r * k, c = S / 2; mm.moveTo(c - hx + r, c - hz); mm.arcTo(c + hx, c - hz, c + hx, c + hz, r); mm.arcTo(c + hx, c + hz, c - hx, c + hz, r); mm.arcTo(c - hx, c + hz, c - hx, c - hz, r); mm.arcTo(c - hx, c - hz, c + hx, c - hz, r); }
   mm.fill();
   mm.lineCap = 'round';
-  for (const h of MAP.hazards) { mm.strokeStyle = h.type === 'lava' ? '#ff5a10' : '#1a4a6a'; mm.lineWidth = h.r * 2 * k; mm.beginPath(); mm.moveTo(X(h.a[0]), X(h.a[1])); mm.lineTo(X(h.b[0]), X(h.b[1])); mm.stroke(); }
+  // terraces are lighter on the minimap, the higher the lighter, like WC3 cliff levels
+  for (const t of MAP.terraces || []) { mm.fillStyle = `rgba(255,255,255,${0.07 * t.h})`; mm.beginPath(); if (t.r !== undefined) mm.arc(X(t.x), X(t.z), t.r * k, 0, 7); else { const P = t.rect ? [[t.rect[0], t.rect[1]], [t.rect[2], t.rect[1]], [t.rect[2], t.rect[3]], [t.rect[0], t.rect[3]]] : t.poly; P.forEach(([x, z], i) => i ? mm.lineTo(X(x), X(z)) : mm.moveTo(X(x), X(z))); mm.closePath(); } mm.fill(); }
+  for (const h of MAP.hazards) { mm.strokeStyle = h.type === 'lava' ? '#ff5a10' : h.type === 'curse' ? '#8a3aff' : '#1a4a6a'; mm.lineWidth = h.r * 2 * k; mm.beginPath(); mm.moveTo(X(h.a[0]), X(h.a[1])); mm.lineTo(X(h.b[0]), X(h.b[1])); mm.stroke(); }
   for (const c of MAP.ice || []) { mm.fillStyle = '#7aa4c8'; mm.beginPath(); mm.arc(X(c.x), X(c.z), c.r * k, 0, 7); mm.fill(); }
   if (fogOn && player) { const r = FOW_U.fowRect.value; mm.imageSmoothingEnabled = true; mm.drawImage(fowCanvas, X(r.x), X(r.y), r.z * k, r.w * k); }
   mm.fillStyle = '#000a'; for (const o of MAP.obstacles) { mm.beginPath(); mm.arc(X(o.x), X(o.z), o.r * k + 1, 0, 7); mm.fill(); }
@@ -6520,7 +6799,7 @@ function startGame() {
   for (let i = 0; i < settings.bots; i++) { const u = new Unit(i + 1, NAMES[i], false); units.push(u); bots.push(new Bot(u, DIFF[settings.diff])); }
   units.forEach(u => respawn(u));
   camLook.set(player.pos.x, 0, player.pos.z);
-  fogOn = settings.fog !== 'off'; fowCur.fill(0);
+  fogOn = settings.fog !== 'off'; fowCur.fill(0); fowSeen.fill(fogOn ? 0 : 1); fowT = 0;
   fowAll(scene);
   prewarm();
   $('menu').classList.add('hidden'); $('end').classList.add('hidden'); $('hud').classList.remove('hidden');
@@ -6590,7 +6869,11 @@ function simStep(st) {
   for (let i = 0; i < units.length; i++) for (let j = i + 1; j < units.length; j++) {
     const a = units[i], b = units[j]; if (!a.alive || !b.alive) continue;
     const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz), m = CFG.unitR * 2;
-    if (d < m && d > 1e-4) { const p = (m - d) / 2 / d; a.pos.x -= dx * p; a.pos.z -= dz * p; b.pos.x += dx * p; b.pos.z += dz * p; }
+    if (d < m && d > 1e-4) { // push apart, but never off a cliff
+      const p = (m - d) / 2 / d, ax = a.pos.x - dx * p, az = a.pos.z - dz * p, bx = b.pos.x + dx * p, bz = b.pos.z + dz * p;
+      if (canStep(a.pos.x, a.pos.z, ax, az)) { a.pos.x = ax; a.pos.z = az; }
+      if (canStep(b.pos.x, b.pos.z, bx, bz)) { b.pos.x = bx; b.pos.z = bz; }
+    }
   }
 }
 function frame(now) {
@@ -6625,7 +6908,7 @@ function frame(now) {
   } else if (m.theme === 'river') {
     for (let n = emitN(36, dt); n > 0; n--) particles.spawn(rnd(-m.hx, m.hx), rnd(0.5, 3), rnd(-m.hz, m.hz), rnd(-0.3, 0.3), rnd(-0.1, 0.2), rnd(-0.3, 0.3), rnd(2, 4), 0.18, 0.1, [0.6, 1, 0.4], [0.1, 0.3, 0.05], 0, 0);
     for (let n = emitN(18, dt); n > 0; n--) { const t = Math.random(), h = m.hazards[0]; smoke.spawn(h.a[0] + (h.b[0] - h.a[0]) * t, 0.3, h.a[1] + (h.b[1] - h.a[1]) * t + rnd(-2, 2), 0.3, 0.1, 0.2, 4, 2, 4, [0.12, 0.16, 0.22], [0.05, 0.07, 0.1], 0, 0); }
-  } else {
+  } else if (m.theme === 'frozen') {
     for (let n = emitN(240, dt); n > 0; n--) { const cx = camLook.x + rnd(-25, 25), cz = camLook.z + rnd(-20, 25); particles.spawn(cx, rnd(10, 14), cz, rnd(-0.6, 0.2), -rnd(1.2, 2), rnd(-0.3, 0.3), 7, 0.14, 0.14, [0.7, 0.8, 0.95], [0.5, 0.6, 0.75], 0, 0); }
     for (let n = emitN(24, dt); n > 0; n--) { const p = edgePointsCache[Math.random() * edgePointsCache.length | 0]; if (p) smoke.spawn(p[0], -1, p[1], 0, rnd(0.5, 1.2), 0, 3, 2, 4, [0.2, 0.28, 0.38], [0.08, 0.1, 0.14], 0, 0); }
   }
@@ -6650,12 +6933,16 @@ function frame(now) {
   }
   for (const fl of flashLights) { fl.t = Math.max(0, fl.t - dt); fl.l.intensity = fl.t * 18; }
   glowLight.intensity = (MAP.theme === 'molten' ? 0.8 : 0.35) + Math.sin(time * 1.7) * 0.1;
+  if (m.theme === 'grave') { // ghost-fire over the cursed graves, low mist drifting between the stones
+    for (const h of m.hazards) for (let n = emitN(26, dt); n > 0; n--) particles.spawn((h.a[0] + h.b[0]) / 2 + rnd(-1.2, 1.2), 0.1, (h.a[1] + h.b[1]) / 2 + rnd(-1.2, 1.2), 0, rnd(0.8, 2), 0, rnd(0.8, 1.6), rnd(0.25, 0.5), 0.05, [0.6, 0.25, 1], [0.1, 0.5, 0.3], 0.3, 0);
+    for (let n = emitN(14, dt); n > 0; n--) smoke.spawn(rnd(-m.hx, m.hx), 0.2, rnd(-m.hz, m.hz), rnd(-0.3, 0.3), rnd(0, 0.1), rnd(-0.3, 0.3), 5, 2.5, 5, [0.1, 0.13, 0.12], [0.04, 0.05, 0.05], 0, 0);
+  }
   // camera
   if (player && state !== 'menu') {
     zoom += (zoomTarget - zoom) * (1 - Math.exp(-rdt * 10));
     const f = camFocus || player.pos, z = camFocus ? zoom * 0.62 : zoom; // camFocus: the final-kill cam
-    camLook.lerp(tmpCam.set(f.x, 0, f.z), 1 - Math.exp(-rdt * (camFocus ? 3 : 14)));
-    camPos.lerp(tmpCam.set(camLook.x, 16 * z, camLook.z + 11 * z), camFocus ? 1 - Math.exp(-rdt * 3) : 1);
+    camLook.lerp(tmpCam.set(f.x, H(f.x, f.z), f.z), 1 - Math.exp(-rdt * (camFocus ? 3 : 14)));
+    camPos.lerp(tmpCam.set(camLook.x, camLook.y + 16 * z, camLook.z + 11 * z), camFocus ? 1 - Math.exp(-rdt * 3) : 1);
   } else if (!player) {
     camLook.set(0, 0, 0); camPos.set(Math.sin(time * 0.1) * 30, 22, Math.cos(time * 0.1) * 30);
   }
@@ -6722,6 +7009,7 @@ boot();
 window.__game = { renderer, get fogOn() { return fogOn; },  get units() { return units; }, get state() { return state; }, get map() { return MAP; }, get rune() { return rune; }, CFG, buildMap: id => buildMap(id),
   get quality() { return { rung, autoQuality, heroShadows, fxDensity, pixelRatio: renderer.getPixelRatio() }; },
   set devCam(c) { devCam = c; },
+  terrain: { H, canStep, findPath, NAV, navCell, navOK, buildNav },
   dev: { advance(sec) { for (let i = 0; i < Math.round(sec / CFG.step); i++) simStep(CFG.step); }, useItem, buyItem, sellItem, canSeeUnit, canSee, damage, resolveRaze, get bots() { return bots; } },
   forceQuality(pr) { autoQuality = false; rung = 0; baseDpr = pr; applyRung(); } }; // for dev/bench.js
 })();
