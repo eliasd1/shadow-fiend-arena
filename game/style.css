@@ -104,7 +104,7 @@ input[type=range] { width: 190px; accent-color: #d8340a; }
 .shop-head { position: relative; }
 
 /* ---------------------------------------------------------------- game feel (stage 4) */
-#flash { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; --c: #f00; background: radial-gradient(ellipse at center, transparent 35%, var(--c) 100%); mix-blend-mode: screen; }
+#flash { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; --c: #f00; background: radial-gradient(ellipse at center, transparent 45%, var(--c) 130%); }
 canvas.dead { filter: grayscale(.85) brightness(.7) contrast(1.05); transition: filter .6s; }
 canvas { transition: filter .4s; }
 #letterbox i { position: fixed; left: 0; right: 0; height: 0; background: #000; z-index: 7; transition: height .5s ease; pointer-events: none; }

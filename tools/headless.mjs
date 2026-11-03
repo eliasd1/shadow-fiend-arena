@@ -14,7 +14,7 @@ if (!url || !stepsFile || !outDir) { console.error('usage: node tools/headless.m
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', PORT = 9333;
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'sfa-chrome-'));
 const chrome = spawn(CHROME, ['--headless=new', '--mute-audio', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
-  '--no-first-run', '--window-size=1600,900', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' });
+  '--no-first-run', '--autoplay-policy=no-user-gesture-required', '--window-size=1600,900', '--hide-scrollbars', 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let ws, id = 0; const pending = new Map();
 const send = (method, params = {}) => new Promise((res, rej) => { const i = ++id; pending.set(i, { res, rej }); ws.send(JSON.stringify({ id: i, method, params })); });

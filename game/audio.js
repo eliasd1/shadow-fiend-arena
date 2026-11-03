@@ -27,13 +27,17 @@ function makeBuffers() {
   distCurve = new Float32Array(1024);
   for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; distCurve[i] = (3 + 30) * x * 20 * Math.PI / 180 / (Math.PI + 30 * Math.abs(x)); }
 }
+let irBuf = null; // the reverb impulse is generated once and shared with the offline renders
 function makeReverb(seconds, decay) {
-  const sr = ctx.sampleRate, len = sr * seconds, ir = ctx.createBuffer(2, len, sr);
-  for (let c = 0; c < 2; c++) {
-    const d = ir.getChannelData(c); let lp = 0;
-    for (let i = 0; i < len; i++) { lp = lp * 0.6 + (Math.random() * 2 - 1) * 0.4; d[i] = lp * Math.pow(1 - i / len, decay); }
+  const sr = ctx.sampleRate, len = sr * seconds;
+  if (!irBuf || irBuf.sampleRate !== sr) {
+    irBuf = ctx.createBuffer(2, len, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = irBuf.getChannelData(c); let lp = 0;
+      for (let i = 0; i < len; i++) { lp = lp * 0.6 + (Math.random() * 2 - 1) * 0.4; d[i] = lp * Math.pow(1 - i / len, decay); }
+    }
   }
-  const conv = ctx.createConvolver(); conv.buffer = ir; return conv;
+  const conv = ctx.createConvolver(); conv.buffer = irBuf; return conv;
 }
 
 function init() {
@@ -51,6 +55,36 @@ function init() {
   revIn.connect(rev); rev.connect(revOut); revOut.connect(master);
   loadCustom();
   decodeVoices();
+  setTimeout(buildCache, 200);
+}
+
+// ---------------------------------------------------------------- pre-rendered sounds
+// Building a sound live costs up to ~120 audio nodes (a raze) plus a live reverb, on every play, for every
+// hero in earshot: a hitch on slower machines. So every sound is rendered once, in the background, into
+// stereo buffers with its reverb baked in (a few random variants for the frequent ones); playing one is then
+// a single buffer source. Until a sound's buffers are ready it is synthesised live as before.
+const DUR = { cast: 0.6, raze: 2.2, hit: 1.0, death: 2.4, soul: 1.0, rune: 1.8, kill: 3.2, respawn: 1.8, heartbeat: 0.5, stinger: 2.2,
+  coin: 0.8, buy: 1.1, shopOpen: 1.1, error: 0.5, blink: 1.3, cyclone: 3.0, avatar: 3.4, veil: 1.6, salve: 1.3, ward: 1.8, wand: 1.4, requiemCharge: 1.7, requiem: 3.2 };
+const VARIANTS = { raze: 4, hit: 3, cast: 3, coin: 3, death: 2, soul: 2 };
+const cache = {}; let caching = false;
+async function renderKind(kind) {
+  const live = { ctx, sfxBus, revIn }, sr = ctx.sampleRate;
+  const off = new OfflineAudioContext(2, Math.ceil(sr * (DUR[kind] || 2)), sr);
+  // build the graph synchronously against the offline context, then put the live one straight back
+  ctx = off; sfxBus = off.destination;
+  const rev = makeReverb(2.8, 2.6); revIn = off.createGain(); revIn.gain.value = 0.9;
+  const ro = off.createGain(); ro.gain.value = 0.55; revIn.connect(rev); rev.connect(ro); ro.connect(off.destination);
+  try { SOUNDS[kind](voice(1, 0, WET[kind] || 0.3), 0.005); } finally { ({ ctx, sfxBus, revIn } = live); }
+  return off.startRendering();
+}
+async function buildCache() {
+  if (caching || !ctx) return; caching = true;
+  for (const k of Object.keys(SOUNDS)) {
+    const list = [];
+    for (let i = 0; i < (VARIANTS[k] || 1); i++) { try { list.push(await renderKind(k)); } catch (e) { break; } }
+    if (list.length) cache[k] = list;
+    await new Promise(r => setTimeout(r, 0)); // let the game breathe between renders
+  }
 }
 
 function loadCustom() {
@@ -293,6 +327,14 @@ function play(kind, opts = {}) {
   if (vol <= 0.02) return;
   if (playCustom(kind, vol)) return;
   const fn = SOUNDS[kind]; if (!fn) return;
+  const pre = cache[kind];
+  if (pre) { // a single pre-rendered buffer: gain + pan, reverb already baked in
+    const src = ctx.createBufferSource(); src.buffer = pre[Math.random() * pre.length | 0];
+    src.playbackRate.value = 1 + (Math.random() - 0.5) * 0.06; // tiny pitch variation, so repeats never sound identical
+    const out = voice(vol, opts.pan || 0, 0); src.connect(out); src.start();
+    src.onended = () => { try { out.disconnect(); } catch (e) {} };
+    return;
+  }
   const out = voice(vol, opts.pan || 0, WET[kind] || 0.3);
   fn(out, ctx.currentTime + 0.005);
   setTimeout(() => { try { out.disconnect(); } catch (e) {} }, 3500);
@@ -371,16 +413,11 @@ window.SFA_AUDIO = {
   init, play, announce, startAmbient, stopAmbient,
   get volume() { return volume; }, set volume(v) { volume = Math.max(0, Math.min(1, v)); applyVolume(); },
   get muted() { return muted; }, set muted(m) { muted = !!m; applyVolume(); },
-  _sounds: SOUNDS, get _ctx() { return ctx; },
+  _sounds: SOUNDS, get _ctx() { return ctx; }, get _cached() { return Object.keys(cache).length; },
   // silent offline render of one sound, for testing (returns peak and RMS)
-  async _renderOffline(kind, wantData) {
-    const saved = { ctx, sfxBus, revIn, whiteBuf, brownBuf, distCurve };
-    ctx = new OfflineAudioContext(2, 44100 * 3, 44100); makeBuffers();
-    sfxBus = ctx.destination; const rev = makeReverb(2.8, 2.6); revIn = ctx.createGain(); revIn.gain.value = 0.9;
-    const ro = ctx.createGain(); ro.gain.value = 0.55; revIn.connect(rev); rev.connect(ro); ro.connect(ctx.destination);
-    const out = voice(1, 0, WET[kind] || 0.3); SOUNDS[kind](out, 0.01);
-    const buf = await ctx.startRendering();
-    ({ ctx, sfxBus, revIn, whiteBuf, brownBuf, distCurve } = saved);
+  async _renderOffline(kind, wantData) { // dev: render one sound silently and report its levels
+    if (!ctx) init();
+    const buf = await renderKind(kind);
     let peak = 0, sum = 0, nan = false; const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) { const v = d[i]; if (v !== v) nan = true; peak = Math.max(peak, Math.abs(v)); sum += v * v; }
     return { kind, peak: +peak.toFixed(3), rms: +Math.sqrt(sum / d.length).toFixed(4), nan, ...(wantData ? { data: d } : {}) };

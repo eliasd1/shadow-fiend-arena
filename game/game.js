@@ -1208,7 +1208,7 @@ function resolveRaze(u, slot) {
     damage(o, dmg + extra, u);
   }
   if (u.stats.hits > hitsBefore) u.stats.razesHit = (u.stats.razesHit || 0) + 1;
-  if (u === player && u.stats.hits > hitsBefore) { hitStop(0.06); screenFlash('#ff7a20', 0.18); }
+  if (u === player && u.stats.hits > hitsBefore) screenFlash('#ff7a20', 0.14);
 }
 const requiemLines = [];
 function releaseRequiem(u) {
@@ -1243,7 +1243,7 @@ function updateRequiem(st) {
 function isEnemy(a, b) { return a !== b && (a.team === undefined || a.team !== b.team); }
 function damage(o, amt, src) {
   o.hp -= amt; o.flash = 1; o.flinch = 1; o.lastHitBy = src; o.lastHitT = gameTime;
-  if (o === player) { hitStop(0.05); screenFlash('#c00000', Math.min(0.75, 0.3 + amt / o.maxHp)); addShake(0.12); }
+  if (o === player) { screenFlash('#c00000', Math.min(0.75, 0.3 + amt / o.maxHp)); addShake(0.12); }
   o.hitBy.set(src, gameTime); o.lockT = gameTime; o.salve = 0; // salve breaks, dagger locks
   src.stats.dmg += amt; src.stats.hits++;
   src.souls = Math.min(CFG.maxSouls, src.souls + 1);
@@ -1272,7 +1272,7 @@ function kill(o, src, env) {
   if (src && src !== o) {
     src.kills++; src.streak++; src.souls = Math.min(CFG.maxSouls, src.souls + 4);
     soulOrbs(o.pos, src, 6 + Math.min(lost, 10));
-    if (src.isPlayer) { sfx('kill', 0.9); hitStop(0.13); screenFlash('#ffd0a0', 0.4); }
+    if (src.isPlayer) { sfx('kill', 0.9); screenFlash('#ffd0a0', 0.35); }
     msg = `<b style="color:${src.color}">${src.name}</b> ${env ? 'drove' : 'razed'} <b style="color:${o.color}">${o.name}</b>${env ? ' ' + how : ''}`;
     if (!firstBlood) { firstBlood = true; announce('FIRST BLOOD', `${src.name} has drawn first blood!`, 'firstblood'); }
     else {
