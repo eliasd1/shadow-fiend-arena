@@ -12,9 +12,10 @@ const CFG = {
   runeEvery: 30, firstRune: 8,
 };
 const DIFF = {
-  easy:   { react: 0.42, dodge: 0.30, lead: 0.4, aimErr: 1.2, cast: 0.24, rune: 0.3 },
-  normal: { react: 0.26, dodge: 0.58, lead: 0.85, aimErr: 0.6, cast: 0.13, rune: 0.6 },
-  hard:   { react: 0.14, dodge: 0.85, lead: 1.0, aimErr: 0.25, cast: 0.08, rune: 0.9 },
+  // items: chance to use an item when it makes sense; plan: buying order (wards only matter with fog on)
+  easy:   { react: 0.42, dodge: 0.30, lead: 0.4, aimErr: 1.2, cast: 0.24, rune: 0.3, items: 0.35, plan: ['boots', 'salve', 'wand', 'treads', 'cyclone'] },
+  normal: { react: 0.26, dodge: 0.58, lead: 0.85, aimErr: 0.6, cast: 0.13, rune: 0.6, items: 0.7, plan: ['boots', 'salve', 'wand', 'treads', 'dagger', 'cyclone', 'scepter', 'avatar'] },
+  hard:   { react: 0.14, dodge: 0.85, lead: 1.0, aimErr: 0.25, cast: 0.08, rune: 0.9, items: 1.0, plan: ['boots', 'ward', 'treads', 'dagger', 'avatar', 'cyclone', 'blade', 'scepter', 'wand'] },
 };
 const COLORS = ['#ff3b2f', '#3b8bff', '#3bff6a', '#ffd23b', '#c04bff', '#3bfff0', '#ff8a2f', '#ff4fb0'];
 const NAMES = ['Nevermore', 'Dreadhorn', 'Ashclaw', 'Soulrender', 'Cinder', 'Gloomreaper', 'Hollowmaw'];
@@ -27,6 +28,8 @@ const RUNES = {
   regen: { name: 'Regeneration', color: 0x3aff6a, css: '#5aff8a', dur: 6 },
 };
 
+const { ITEMS, SHOP, GOLD, ICONS } = window.SFA_ITEMS;
+const iconURL = id => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(ICONS[id]);
 const $ = id => document.getElementById(id);
 const rnd = (a, b) => a + Math.random() * (b - a);
 const wrap = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
@@ -51,6 +54,7 @@ const MAPS = {
     obstacles: mirror([
       { prop: 'obelisk', x: -7, z: -8, r: 1.0, h: 5.5 }, { prop: 'obelisk', x: 7, z: -8, r: 1.0, h: 4.8 },
       { prop: 'obelisk', x: -17, z: -9, r: 1.0, h: 5.0 },
+      { prop: 'shop', x: 0, z: -14.5, r: 1.8, h: 3.6, rot: 0 },
     ]),
     decor: mirror([
       { prop: 'gargoyle', x: -26, z: -12, h: 4.5, rot: 0.6 }, { prop: 'gargoyle', x: 26, z: -12, h: 4.5, rot: -0.6 },
@@ -66,6 +70,7 @@ const MAPS = {
       { prop: 'tree', x: -14, z: 8, r: 0.8, h: 4.6 }, { prop: 'tree', x: -12.4, z: 9.8, r: 0.8, h: 4.2 }, { prop: 'tree', x: -15.8, z: 10.2, r: 0.8, h: 5.0 },
       { prop: 'tree', x: -4, z: 13, r: 0.8, h: 4.4 }, { prop: 'tree', x: -2.4, z: 14.6, r: 0.8, h: 4.8 }, { prop: 'tree', x: -20, z: 1.5, r: 0.8, h: 4.5 },
       { prop: 'column', x: -8, z: 3, r: 1.0, h: 3.6 }, { prop: 'column', x: -16, z: -3, r: 1.0, h: 3.2 }, { prop: 'column', x: 6, z: 11, r: 1.0, h: 3.8 },
+      { prop: 'shop', x: -19, z: 14, r: 1.8, h: 3.6, rot: Math.PI * 0.75 },
     ]),
     decor: mirror([
       { prop: 'gargoyle', x: -27, z: -17, h: 4.2, rot: 0.8 }, { prop: 'gargoyle', x: 27, z: 17.5, h: 4.2, rot: -2.4 },
@@ -78,7 +83,8 @@ const MAPS = {
     name: 'Frozen Throne', theme: 'frozen', sight: 16, hx: 20, hz: 20, r: 20, edge: 'abyss', edgeDps: 600,
     sky: 0x0b1018, fog: [0x1a2635, 0.017], hemi: [0x7080a8, 0x141a26, 0.6], sun: [0xcfe2ff, 1.15], exposure: 0.8,
     hazards: [], ice: [{ x: 0, z: 0, r: 7.2 }],
-    obstacles: [0, 1, 2, 3, 4, 5].map(k => { const a = k * Math.PI / 3 + Math.PI / 6; return { prop: 'ice', x: Math.cos(a) * 12, z: Math.sin(a) * 12, r: 1.25, h: 3.4, rot: a }; }),
+    obstacles: [0, 1, 2, 3, 4, 5].map(k => { const a = k * Math.PI / 3 + Math.PI / 6; return { prop: 'ice', x: Math.cos(a) * 12, z: Math.sin(a) * 12, r: 1.25, h: 3.4, rot: a }; })
+      .concat([{ prop: 'shop', x: 0, z: 16.5, r: 1.8, h: 3.6, rot: Math.PI }, { prop: 'shop', x: 0, z: -16.5, r: 1.8, h: 3.6, rot: 0 }]),
     decor: [
       { prop: 'ice', x: 0, z: -27, h: 14 }, { prop: 'ice', x: -9, z: -25, h: 8, rot: 1 }, { prop: 'ice', x: 9, z: -25, h: 8, rot: 2 },
       { prop: 'gargoyle', x: -22, z: 12, h: 4, rot: 2.2 }, { prop: 'gargoyle', x: 22, z: 12, h: 4, rot: -2.2 },
@@ -206,15 +212,22 @@ function losClear(ax, az, bx, bz) { // obstacles (trees, pillars) block line of 
   }
   return true;
 }
-function canSee(a, x, z) { return !fogOn || (Math.hypot(x - a.pos.x, z - a.pos.z) < sight() && losClear(a.pos.x, a.pos.z, x, z)); }
+function canSee(a, x, z) {
+  if (!fogOn || (Math.hypot(x - a.pos.x, z - a.pos.z) < sight() && losClear(a.pos.x, a.pos.z, x, z))) return true;
+  for (const w of a.wards) if (Math.hypot(x - w.x, z - w.z) < ITEMS.ward.vision && losClear(w.x, w.z, x, z)) return true;
+  return false;
+}
+// a unit is seen if its spot is in vision and it is not hidden by a Veil Blade
+function canSeeUnit(a, u) { return u === a || (!(u.invis > 0) && canSee(a, u.pos.x, u.pos.z)); }
 function updateFog(dt) {
   fowT -= dt; if (fowT > 0) return; fowT = 1 / 15;
-  const r = FOW_U.fowRect.value, cs = r.z / FOW_N, R = sight(), c = player && fogOn ? player.pos : null, D = fowImg.data;
+  const r = FOW_U.fowRect.value, cs = r.z / FOW_N, D = fowImg.data;
+  const eyes = player && fogOn ? [{ x: player.pos.x, z: player.pos.z, R: sight() }, ...player.wards.map(w => ({ x: w.x, z: w.z, R: ITEMS.ward.vision }))] : null;
   for (let iz = 0; iz < FOW_N; iz++) for (let ix = 0; ix < FOW_N; ix++) {
     const i = iz * FOW_N + ix; let v = 1;
-    if (c) {
-      const x = r.x + (ix + 0.5) * cs, z = r.y + (iz + 0.5) * cs, d = Math.hypot(x - c.x, z - c.z);
-      v = d > R ? 0 : losClear(c.x, c.z, x, z) ? Math.min(1, (R - d) / 1.6) : 0;
+    if (eyes) {
+      const x = r.x + (ix + 0.5) * cs, z = r.y + (iz + 0.5) * cs; v = 0;
+      for (const c of eyes) { const d = Math.hypot(x - c.x, z - c.z); if (d < c.R && losClear(c.x, c.z, x, z)) { v = Math.max(v, Math.min(1, (c.R - d) / 1.6)); if (v >= 1) break; } }
     }
     fowCur[i] += (v - fowCur[i]) * 0.45;
     const b = fowCur[i] * 255 | 0, i4 = i * 4; fowData[i4] = fowData[i4 + 1] = fowData[i4 + 2] = b;
@@ -559,6 +572,30 @@ function fallbackProp(kind) {
     const m = new THREE.MeshStandardMaterial({ color: 0x1a1210, roughness: 1, flatShading: true });
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.35, 3, 6), m); trunk.position.y = 1.5; g.add(trunk);
     for (let i = 0; i < 5; i++) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.09, 1.4, 4), m); b.position.set(0, 2.2 + i * 0.2, 0); b.rotation.set(rnd(-1, 1), rnd(0, 6), rnd(-1, 1)); g.add(b); }
+  } else if (kind === 'shop') { // the Soul Merchant: squat stone hut, crimson slate roof with gold trim, lanterns, wares, a spinning coin
+    const C = h => new THREE.Color(h).convertSRGBToLinear(); // colours picked in sRGB
+    const stone = new THREE.MeshStandardMaterial({ color: C(0x15100f), roughness: 0.95, flatShading: true });
+    const dark = new THREE.MeshStandardMaterial({ color: C(0x0c0809), roughness: 1, flatShading: true });
+    const roof = new THREE.MeshStandardMaterial({ color: C(0x3a0c14), roughness: 0.6, flatShading: true, emissive: C(0x1a0204), emissiveIntensity: 1 });
+    const wood = new THREE.MeshStandardMaterial({ color: C(0x2e1a0c), roughness: 0.9, flatShading: true });
+    const gold = new THREE.MeshStandardMaterial({ color: C(0xffb830), emissive: C(0xc07008), emissiveIntensity: 0.8, metalness: 0.9, roughness: 0.3 });
+    const bone = new THREE.MeshStandardMaterial({ color: C(0x8a7a66), roughness: 0.8, flatShading: true });
+    const lamp = new THREE.MeshBasicMaterial({ color: C(0xffa040) }), soul = new THREE.MeshBasicMaterial({ color: C(0x6aff9a) });
+    const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => { const k = new THREE.Mesh(geo, mat); k.position.set(x, y, z); k.rotation.set(rx, ry, rz); g.add(k); return k; };
+    add(new THREE.CylinderGeometry(2.0, 2.25, 0.4, 8), stone, 0, 0.2, 0, 0, Math.PI / 8);
+    add(new THREE.CylinderGeometry(1.25, 1.5, 1.7, 8), stone, 0, 1.25, 0, 0, Math.PI / 8);
+    add(new THREE.TorusGeometry(1.42, 0.06, 6, 24), gold, 0, 2.1, 0, Math.PI / 2);
+    add(new THREE.ConeGeometry(2.05, 1.1, 8), roof, 0, 2.6, 0, 0, Math.PI / 8);
+    add(new THREE.ConeGeometry(1.1, 1.2, 8), roof, 0, 3.4, 0, 0, Math.PI / 8);
+    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + Math.PI / 4; add(new THREE.ConeGeometry(0.09, 0.7, 5), bone, Math.cos(a) * 1.6, 2.35, Math.sin(a) * 1.6, Math.sin(a) * 0.9, 0, -Math.cos(a) * 0.9); }
+    add(new THREE.BoxGeometry(0.8, 1.15, 0.3), dark, 0, 0.95, 1.38);
+    add(new THREE.BoxGeometry(1.9, 0.5, 0.6), wood, 0, 0.6, 1.85);
+    add(new THREE.BoxGeometry(0.42, 0.28, 0.3), gold, 0.55, 0.99, 1.85);
+    for (const [x, c] of [[-0.6, 0x3aff7a], [-0.35, 0xff3a5a], [-0.1, 0x5a8aff]]) add(new THREE.CylinderGeometry(0.07, 0.09, 0.26, 8), new THREE.MeshBasicMaterial({ color: C(c) }), x, 0.98, 1.9);
+    for (const sx of [-1, 1]) { add(new THREE.CylinderGeometry(0.05, 0.07, 2.0, 5), wood, sx * 1.25, 1.2, 1.6); add(new THREE.OctahedronGeometry(0.18, 0), lamp, sx * 1.25, 2.25, 1.6); }
+    add(new THREE.SphereGeometry(0.12, 10, 8), soul, 0, 4.15, 0);
+    const pivot = new THREE.Group(); pivot.position.y = 4.75; pivot.userData.spin = true; g.add(pivot);
+    const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.12, 28), gold); coin.rotation.x = Math.PI / 2; pivot.add(coin);
   } else if (kind === 'ice') {
     const m = new THREE.MeshStandardMaterial({ color: 0x9fd0ff, roughness: 0.15, metalness: 0.1, emissive: 0x103050, flatShading: true });
     for (let i = 0; i < 6; i++) { const s = new THREE.Mesh(new THREE.ConeGeometry(0.3, rnd(1.5, 3), 5), m); s.position.set(rnd(-0.5, 0.5), 1, rnd(-0.5, 0.5)); s.rotation.set(rnd(-0.4, 0.4), 0, rnd(-0.4, 0.4)); g.add(s); }
@@ -793,6 +830,8 @@ function buildMap(id) {
     } }
   G.add(rocks);
   for (const kind in lists) addProps(G, kind, lists[kind]);
+  G.userData.coins = []; G.traverse(o => { if (o.userData.spin) G.userData.coins.push(o); });
+  m.shops = m.obstacles.filter(o => o.prop === 'shop');
   // ambient emitters
   m._emit = [];
   for (const o of m.obstacles) if (o.prop === 'obelisk') m._emit.push([o.x, o.h * 0.75, o.z]);
@@ -810,6 +849,12 @@ class Unit {
     this.hp = CFG.hp; this.souls = 0; this.kills = 0; this.deaths = 0; this.streak = 0;
     this.alive = true; this.respawnT = 0; this.prot = 0; this.cd = [0, 0, 0]; this.cast = null; this.post = 0;
     this.buffs = { haste: 0, dd: 0, regen: 0 };
+    // items and gold
+    this.gold = GOLD.start; this.items = [null, null, null, null, null, null]; this.maxHp = CFG.hp;
+    this.mod = { spd: 0, hp: 0, cdMul: 1, scepter: false };
+    this.cyclone = 0; this.immune = 0; this.invis = 0; this.veilBonus = false; this.salve = 0; this.lockT = -99; this.avatarUses = 0;
+    this.hitBy = new Map(); this.marks = new Map(); this.wards = [];
+    this.stats = { dmg: 0, hits: 0, casts: 0, goldEarned: 0, assists: 0, used: {} };
     this.lastHitBy = null; this.lastHitT = -99; this.multi = 0; this.multiT = 0;
     this.flash = 0; this.deathT = 0; this.bob = rnd(0, 6); this.walkPhase = 0; this.flinch = 0;
     this.poseT = {}; this.springs = {}; this.velS = new THREE.Vector2(); this.velLag = { x: 0, y: 0, vx: 0, vy: 0 }; this.accF = 0; this.accR = 0; this.spdS = 0; this.dip = 0; this.bankS = 0;
@@ -830,15 +875,23 @@ class Unit {
     scene.remove(this.root); scene.remove(this.tele); this.label.remove();
     for (const m of this.model.userData.mats) m.dispose();
     this.ring.material.dispose(); this.blob.material.dispose(); this.tele.material.dispose();
+    for (const w of this.wards) removeWard(w);
   }
-  get speed() { let s = CFG.speed * (this.buffs.haste > 0 ? 1.6 : 1); const h = hazardAt(this.pos.x, this.pos.z); if (h && h.type === 'water') s *= 0.85; return s; }
+  get speed() { let s = CFG.speed * (this.buffs.haste > 0 ? 1.6 : 1) * (1 + this.mod.spd + (this.invis > 0 ? ITEMS.blade.speed : 0)); const h = hazardAt(this.pos.x, this.pos.z); if (h && h.type === 'water') s *= 0.85; return s; }
   moveTo(x, z) { if (!this.alive || this.cast) return; this.moveTarget = new THREE.Vector2(x, z); this.faceAngle = null; }
   razeCenter(slot, facing = this.facing) {
     const d = CFG.razeDist[slot]; return new THREE.Vector2(this.pos.x + Math.sin(facing) * d, this.pos.z + Math.cos(facing) * d);
   }
   castRaze(slot) {
-    if (!this.alive || this.cast || this.cd[slot] > 0) return false;
+    if (!this.alive || this.cast || this.cd[slot] > 0 || this.cyclone > 0) return false;
     this.cast = { slot, t: CFG.castTime }; this.moveTarget = null; this.faceAngle = null;
+    if (this.invis > 0) { this.invis = 0; this.veilBonus = true; } // a raze from the veil reveals you, with bonus damage
+    this.stats.casts++;
+    for (const o of units) { // Soul Wand: charges when a visible enemy razes nearby
+      if (o === this || !o.alive) continue;
+      const w = o.items.find(it => it && it.id === 'wand');
+      if (w && w.charges < ITEMS.wand.maxCharges && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < ITEMS.wand.chargeRange && canSee(o, this.pos.x, this.pos.z)) w.charges++;
+    }
     const c = this.razeCenter(slot);
     this.tele.position.set(c.x, 0.08, c.y); this.tele.visible = true;
     sfx('cast', this.isPlayer ? 0.9 : earVol(this.pos) * 0.6, this.pos);
@@ -863,11 +916,18 @@ class Unit {
     for (const k in this.buffs) this.buffs[k] = Math.max(0, this.buffs[k] - dt);
     if (!this.alive) { this.respawnT -= dt; if (this.respawnT <= 0) respawn(this); return; }
     this.prot = Math.max(0, this.prot - dt); this.post = Math.max(0, this.post - dt);
-    this.hp = Math.min(CFG.hp, this.hp + (CFG.regen + (this.buffs.regen > 0 ? 70 : 0)) * dt);
+    this.hp = Math.min(this.maxHp, this.hp + (CFG.regen + (this.buffs.regen > 0 ? 70 : 0)) * dt);
+    if (state === 'play') this.gold += GOLD.perSec * dt;
+    for (const it of this.items) if (it && it.cd > 0) it.cd = Math.max(0, it.cd - dt);
+    this.immune = Math.max(0, this.immune - dt); this.invis = Math.max(0, this.invis - dt);
+    if (this.salve > 0) { this.salve -= dt; this.hp = Math.min(this.maxHp, this.hp + ITEMS.salve.heal / ITEMS.salve.dur * dt); }
+    if (this.cyclone > 0) { // swept up: no moving, casting or burning until it lands
+      this.cyclone -= dt; this.slide.set(0, 0); this.vel.set(0, 0, 0); this.moveTarget = null; return;
+    }
     let dir = null;
     if (this.cast) {
       this.cast.t -= dt;
-      if (this.cast.t <= 0) { const s = this.cast.slot; this.cast = null; this.post = 0.38; this.cd[s] = CFG.razeCd; this.tele.visible = false; resolveRaze(this, s); }
+      if (this.cast.t <= 0) { const s = this.cast.slot; this.cast = null; this.post = 0.38; this.cd[s] = CFG.razeCd * this.mod.cdMul; this.tele.visible = false; resolveRaze(this, s); }
     } else {
       if (input && (input.x || input.z)) { dir = new THREE.Vector2(input.x, input.z).normalize(); this.moveTarget = null; }
       else if (this.moveTarget) {
@@ -1003,7 +1063,7 @@ class Unit {
   }
   visual(dt, t) {
     const alive = this.alive;
-    this.seen = this === player || !player || canSee(player, this.pos.x, this.pos.z);
+    this.seen = this === player || !player || canSeeUnit(player, this);
     this.root.visible = this.seen;
     this.root.position.set(this.pos.x, 0, this.pos.z);
     this.flash = Math.max(0, this.flash - dt * 5);
@@ -1026,9 +1086,23 @@ class Unit {
       m.position.set(Math.cos(yv) * sway, hover, -Math.sin(yv) * sway);
       m.rotation.order = 'YXZ';
       m.rotation.set(0, yv, 0);
+      if (this.cyclone > 0) { // Cyclone Staff: lifted and spun, a funnel of wind around
+        const k = Math.min(1, (ITEMS.cyclone.dur - this.cyclone) * 5, this.cyclone * 4);
+        m.position.y += 1.5 * k; m.rotation.y += t * 16 * k;
+        if (!this.funnel) { this.funnel = new THREE.Mesh(funnelGeo, funnelMat); this.funnel.renderOrder = 5; this.root.add(this.funnel); }
+        this.funnel.visible = true; this.funnel.scale.set(k, 0.4 + 0.6 * k, k); this.funnel.rotation.y = -t * 9;
+        if (this.seen) for (let n = emitN(110, dt); n > 0; n--) { const a = rnd(0, 7), r = rnd(0.5, 1.4), y = rnd(0, 3.2); particles.spawn(this.pos.x + Math.cos(a) * r * (0.5 + y / 4), y, this.pos.z + Math.sin(a) * r * (0.5 + y / 4), -Math.sin(a) * 5, rnd(1, 2.5), Math.cos(a) * 5, 0.5, 0.35, 0.1, [0.8, 0.95, 1], [0.3, 0.5, 0.6], 0, 2); }
+      }
       m.scale.setScalar(1 + this.flash * 0.06);
       this.ring.material.opacity = this.prot > 0 ? 0.3 + 0.3 * Math.sin(t * 20) : 0.6;
-      this.ring.material.color.set(this.buffs.dd > 0 ? '#4a8aff' : this.color);
+      this.ring.material.color.set(this.immune > 0 ? '#ffd040' : this.buffs.dd > 0 ? '#4a8aff' : this.color);
+      if (this.immune > 0 && this.seen) for (let n = emitN(40, dt); n > 0; n--) { const a = rnd(0, 7); particles.spawn(this.pos.x + Math.cos(a) * 0.9, rnd(0.2, 2.6), this.pos.z + Math.sin(a) * 0.9, 0, rnd(0.5, 1.5), 0, 0.6, 0.35, 0.05, [1, 0.85, 0.3], [0.5, 0.3, 0], 0, 0); }
+      if (this.funnel && !(this.cyclone > 0)) this.funnel.visible = false;
+      if (this.immune > 0 && !this.shell) { this.shell = new THREE.Mesh(shellGeo, shellMat); this.shell.position.y = 1.35; this.shell.renderOrder = 5; this.root.add(this.shell); }
+      if (this.shell) { this.shell.visible = this.immune > 0; this.shell.scale.setScalar(Math.min(1, this.immune * 3) * (1 + Math.sin(t * 5) * 0.03)); }
+      // Veil Blade: you see yourself as a shade; enemies don't see you at all
+      const ghost = this.invis > 0 ? 0.3 : 1;
+      if (this.ghost !== ghost) { this.ghost = ghost; for (const mat of m.userData.mats) { mat.transparent = ghost < 1; mat.opacity = ghost; } }
       const fx = Math.sin(this.facing), fz = Math.cos(this.facing), sv = this.seen;
       if (sv) for (let n = emitN(42, dt); n > 0; n--) particles.spawn(this.pos.x - fx * 0.15 + rnd(-0.15, 0.15), hover + 0.15, this.pos.z - fz * 0.15 + rnd(-0.15, 0.15), rnd(-0.3, 0.3) - this.vel.x * 0.15, rnd(-0.2, 0.6), rnd(-0.3, 0.3) - this.vel.z * 0.15, rnd(0.4, 0.8), 0.7, 0.1, FIRE0, FIRE1, 0.5, 1);
       if (sv) for (let n = emitN(this.souls / CFG.maxSouls * 48, dt); n > 0; n--) { const a = rnd(0, 7); particles.spawn(this.pos.x + Math.cos(a) * 0.8, rnd(0.6, 2), this.pos.z + Math.sin(a) * 0.8, 0, rnd(0.3, 1), 0, 0.9, 0.35, 0.05, SOUL0, [0.5, 0, 0.1], 0.3, 0); }
@@ -1044,12 +1118,29 @@ class Unit {
       this.deathT += dt;
       const k = Math.min(this.deathT / 0.7, 1);
       m.scale.setScalar(Math.max(0.001, 1 - k)); m.position.y = 0.32 - k * 0.6; m.rotation.y += k * 6;
-      this.ring.material.opacity = 0; this.tele.visible = false;
+      this.ring.material.opacity = 0; this.tele.visible = false; if (this.shell) this.shell.visible = false; if (this.funnel) this.funnel.visible = false;
     }
-    for (const mat of m.userData.mats) if (mat.userData.base) mat.color.copy(mat.userData.base).multiplyScalar(1 + this.flash * 3);
+    for (const mat of m.userData.mats) if (mat.userData.base) { mat.color.copy(mat.userData.base).multiplyScalar(1 + this.flash * 3); if (this.immune > 0) mat.color.lerp(GOLD_TINT, 0.35); }
   }
 }
 
+const GOLD_TINT = new THREE.Color(0xffc040);
+const shellGeo = new THREE.SphereGeometry(1.25, 28, 18);
+const shellMat = new THREE.ShaderMaterial({
+  uniforms: { t: timeU }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: 'varying vec3 vN; varying vec3 vV; varying vec3 vP; void main(){ vP = position; vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+  fragmentShader: `uniform float t; varying vec3 vN; varying vec3 vV; varying vec3 vP;
+    void main(){ float rim = pow(1.0 - abs(dot(vN, vV)), 2.2); float hex = 0.5 + 0.5 * sin(vP.y * 22.0 - t * 4.0) * sin(atan(vP.z, vP.x) * 9.0);
+      float a = rim * (0.75 + 0.25 * sin(t * 6.0)) + hex * 0.06; gl_FragColor = vec4(vec3(1.0, 0.72, 0.18) * a * 1.4, a); }`,
+});
+const funnelGeo = new THREE.CylinderGeometry(1.5, 0.35, 3.6, 28, 6, true).translate(0, 1.8, 0);
+const funnelMat = new THREE.ShaderMaterial({
+  uniforms: { t: timeU }, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, vertexShader: WORLD_VS,
+  fragmentShader: `uniform float t; varying vec2 vUv; ${NOISE_GLSL}
+    void main(){ float a = vUv.x * 6.2832; float sw = fbm(vec2(vUv.x * 9.0 - t * 2.4 + vUv.y * 5.0, vUv.y * 3.0 - t * 1.1));
+      float band = smoothstep(0.45, 0.8, sw) * smoothstep(0.0, 0.15, vUv.y) * smoothstep(1.0, 0.7, vUv.y);
+      gl_FragColor = vec4(vec3(0.75, 0.95, 1.0) * band * 0.9, band); }`,
+});
 function earVol(p) { if (!player) return 0.5; const d = p.distanceTo(player.pos); return Math.max(0, 1 - d / 26); }
 
 function resolveRaze(u, slot) {
@@ -1057,14 +1148,25 @@ function resolveRaze(u, slot) {
   razeFx(c.x, c.y, u.souls / CFG.maxSouls, dd);
   sfx('raze', u.isPlayer ? 1 : earVol(new THREE.Vector3(c.x, 0, c.y)), { x: c.x });
   if (player) { const d = Math.hypot(c.x - player.pos.x, c.y - player.pos.z); shake = Math.max(shake, Math.max(0, 0.38 - d * 0.03)); }
-  const dmg = (CFG.baseDmg + u.souls * CFG.soulDmg) * (dd ? 2 : 1);
+  const dmg = (CFG.baseDmg + u.souls * CFG.soulDmg) * (dd ? 2 : 1) + (u.veilBonus ? ITEMS.blade.bonus : 0);
+  u.veilBonus = false;
   for (const o of units) {
     if (o === u || !o.alive || o.prot > 0) continue;
-    if (Math.hypot(o.pos.x - c.x, o.pos.z - c.y) <= CFG.razeR + CFG.unitR) damage(o, dmg, u);
+    if (Math.hypot(o.pos.x - c.x, o.pos.z - c.y) > CFG.razeR + CFG.unitR) continue;
+    if (o.immune > 0 || o.cyclone > 0) { floatText(o.pos, o.immune > 0 ? 'IMMUNE' : 'MISS', '#ffe27a'); continue; }
+    let extra = 0;
+    if (u.mod.scepter) { // Shadow Mark: every earlier hit still burning on this target adds damage, then stacks again
+      const S = ITEMS.scepter, m = o.marks.get(u);
+      const n = m && gameTime - m.t < S.markDur ? m.n : 0;
+      extra = n * S.mark; o.marks.set(u, { n: Math.min(S.markMax, n + 1), t: gameTime });
+    }
+    damage(o, dmg + extra, u);
   }
 }
 function damage(o, amt, src) {
   o.hp -= amt; o.flash = 1; o.flinch = 1; o.lastHitBy = src; o.lastHitT = gameTime;
+  o.hitBy.set(src, gameTime); o.lockT = gameTime; o.salve = 0; // salve breaks, dagger locks
+  src.stats.dmg += amt; src.stats.hits++;
   src.souls = Math.min(CFG.maxSouls, src.souls + 1);
   sfx('hit', o.isPlayer || src.isPlayer ? 0.9 : earVol(o.pos) * 0.7, o.pos);
   if (o.seen !== false || src === player) floatText(o.pos, Math.round(amt), src === player ? '#ffd04a' : o === player ? '#ff5a5a' : '#ffb04a');
@@ -1075,6 +1177,13 @@ function kill(o, src, env) {
   if (!o.alive) return;
   o.alive = false; o.hp = 0; o.respawnT = CFG.respawn; o.deaths++; o.cast = null; o.moveTarget = null; o.tele.visible = false;
   for (const k in o.buffs) o.buffs[k] = 0;
+  o.invis = o.cyclone = o.immune = o.salve = 0; o.veilBonus = false; o.marks.clear();
+  // gold: bounty grows with the victim's streak; everyone else who hurt them recently gets an assist
+  if (src && src !== o) {
+    payGold(src, GOLD.kill + GOLD.perStreak * o.streak + (firstBlood ? 0 : GOLD.firstBlood), o.pos);
+    for (const [a, t] of o.hitBy) if (a !== src && a !== o && gameTime - t <= GOLD.assistWindow) { payGold(a, GOLD.assist, o.pos); a.stats.assists++; }
+  }
+  o.hitBy.clear();
   const lost = Math.floor(o.souls / 2); o.souls -= lost; const prevStreak = o.streak; o.streak = 0;
   for (let i = 0; i < 70; i++) { const a = rnd(0, 7), s = rnd(1, 6); particles.spawn(o.pos.x, rnd(0.4, 2), o.pos.z, Math.cos(a) * s, rnd(1, 7), Math.sin(a) * s, rnd(0.6, 1.2), rnd(0.6, 1.2), 0.1, [1, 0.4, 0.15], [0.2, 0, 0.05], -3, 1.5); }
   for (let i = 0; i < 14; i++) smoke.spawn(o.pos.x + rnd(-0.5, 0.5), rnd(0.5, 1.5), o.pos.z + rnd(-0.5, 0.5), rnd(-0.5, 0.5), rnd(1, 2), rnd(-0.5, 0.5), 1.6, 1.4, 3, SMOKE0, SMOKE1, 0, 0.5);
@@ -1114,7 +1223,7 @@ function respawn(u) {
     if (md > bestD) { bestD = md; best = p; }
   }
   u.pos.copy(best); u.prev.copy(best); u.slide.set(0, 0); u.facing = Math.atan2(-best.x, -best.z);
-  u.alive = true; u.hp = CFG.hp; u.prot = CFG.spawnProt; u.cd = [0, 0, 0];
+  u.alive = true; u.hp = u.maxHp; u.prot = CFG.spawnProt; u.cd = [0, 0, 0];
   if (u.isPlayer && state === 'play') sfx('respawn', 0.8);
   for (let i = 0; i < 40; i++) { const a = rnd(0, 7); particles.spawn(u.pos.x + Math.cos(a) * 1.2, 0.1, u.pos.z + Math.sin(a) * 1.2, -Math.cos(a), rnd(2, 5), -Math.sin(a), 0.7, 0.8, 0.1, [1, 0.5, 0.2], [0.4, 0, 0], 0, 1); }
 }
@@ -1158,41 +1267,217 @@ function takeRune(u) {
   rune = null; runeMesh.visible = false; runeLight.intensity = 0; runeT = CFG.runeEvery;
 }
 
+// ------------------------------------------------------------------ gold and items (data in items.js)
+function payGold(u, g, at) {
+  u.gold += g; u.stats.goldEarned += g;
+  if (u === player) { floatText(at || u.pos, '+' + g, '#ffd75a'); sfx('coin', 0.5); }
+}
+const slotOf = (u, id) => u.items.findIndex(it => it && it.id === id);
+function recalcItems(u) {
+  const has = id => slotOf(u, id) >= 0, oldMax = u.maxHp;
+  u.mod.spd = Math.max(has('boots') ? ITEMS.boots.speed : 0, has('treads') ? ITEMS.treads.speed : 0) + (has('cyclone') ? ITEMS.cyclone.speed : 0);
+  u.mod.hp = (has('treads') ? ITEMS.treads.hp : 0) + (has('avatar') ? ITEMS.avatar.hp : 0) + (has('scepter') ? ITEMS.scepter.hp : 0);
+  u.mod.cdMul = has('scepter') ? ITEMS.scepter.cdMul : 1; u.mod.scepter = has('scepter');
+  u.maxHp = CFG.hp + u.mod.hp;
+  if (u.alive) u.hp = Math.max(1, Math.min(u.maxHp, u.hp + u.maxHp - oldMax));
+}
+// what buying `id` would cost this unit right now (Ember Treads is cheaper with Swift Boots in the bag)
+function priceFor(u, id) { const D = ITEMS[id]; return D.needs && slotOf(u, D.needs) < 0 ? D.cost + ITEMS[D.needs].cost : D.cost; }
+const STACKS = { salve: 3, ward: 2 };
+function buyItem(u, id) {
+  const D = ITEMS[id], price = priceFor(u, id);
+  if (u.gold < price) return 'Not enough gold';
+  const own = slotOf(u, id);
+  if (STACKS[id]) {
+    if (own >= 0) { if (u.items[own].charges >= STACKS[id]) return 'Carrying the maximum'; u.items[own].charges++; u.gold -= price; return true; }
+  } else if (own >= 0) return 'Already owned';
+  let slot = D.needs ? slotOf(u, D.needs) : -1; // an upgrade takes the component's slot
+  if (slot < 0) slot = u.items.indexOf(null);
+  if (slot < 0) return 'Inventory full';
+  u.items[slot] = { id, cd: 0, charges: STACKS[id] ? 1 : id === 'wand' ? 0 : undefined };
+  u.gold -= price; recalcItems(u); return true;
+}
+function sellItem(u, i) {
+  const it = u.items[i]; if (!it) return false;
+  const D = ITEMS[it.id], base = D.needs ? D.cost + ITEMS[D.needs].cost : D.cost;
+  u.gold += Math.floor(base * GOLD.sellBack * (STACKS[it.id] ? it.charges : 1));
+  u.items[i] = null; recalcItems(u); return true;
+}
+function clampToArena(x, z, margin) {
+  for (let k = 0; k < 30 && sdArena(x, z) > -margin; k++) { x *= 0.95; z *= 0.95; }
+  for (const o of MAP.obstacles) { const dx = x - o.x, dz = z - o.z, d = Math.hypot(dx, dz), m = o.r + CFG.unitR + 0.05; if (d < m) { x = o.x + (d > 1e-4 ? dx / d : 1) * m; z = o.z + (d > 1e-4 ? dz / d : 0) * m; } }
+  return [x, z];
+}
+// use item in slot i. pt: ground point under the cursor (quick-cast), tgt: explicit unit target (bots).
+// Returns true, or a short reason it could not be used.
+function useItem(u, i, pt, tgt) {
+  const it = u.items[i]; if (!it) return 'Empty slot';
+  const D = ITEMS[it.id];
+  if (!u.alive || u.cyclone > 0) return 'Can’t act now';
+  if (D.kind === 'passive') return D.name + ' is passive';
+  if (it.cd > 0) return D.name + ' is on cooldown';
+  const at = pt || { x: u.pos.x + Math.sin(u.facing) * 4, z: u.pos.z + Math.cos(u.facing) * 4 };
+  const toward = (range) => { const dx = at.x - u.pos.x, dz = at.z - u.pos.z, d = Math.hypot(dx, dz); const k = d > range ? range / d : 1; return [u.pos.x + dx * k, u.pos.z + dz * k]; };
+  switch (it.id) {
+    case 'salve': u.salve = D.dur; sfx('salve', u.isPlayer ? 0.7 : earVol(u.pos) * 0.5, u.pos); break;
+    case 'wand': {
+      if (!it.charges) return 'Soul Wand has no charges';
+      const h = it.charges * D.perCharge; u.hp = Math.min(u.maxHp, u.hp + h); it.charges = 0;
+      if (u.seen !== false) floatText(u.pos, '+' + h, '#7aff8a');
+      for (let k = 0; k < 30; k++) { const a = rnd(0, 7); particles.spawn(u.pos.x + Math.cos(a) * 0.7, rnd(0.3, 2), u.pos.z + Math.sin(a) * 0.7, 0, rnd(1, 3), 0, 0.7, 0.4, 0.05, [0.75, 0.5, 1], [0.2, 0, 0.4], 0, 0.5); }
+      sfx('wand', u.isPlayer ? 0.7 : earVol(u.pos) * 0.5, u.pos); break;
+    }
+    case 'ward': {
+      const [x, z] = clampToArena(...toward(D.range), 0.5);
+      placeWard(u, x, z); if (--it.charges <= 0) u.items[i] = null;
+      sfx('ward', u.isPlayer ? 0.6 : 0, u.pos); break;
+    }
+    case 'dagger': {
+      if (gameTime - u.lockT < D.lock) return 'Shadowstep Dagger is disabled after taking damage';
+      if (u.cast) return 'Can’t blink while razing';
+      const [x, z] = clampToArena(...toward(D.range), 0.8);
+      blinkFx(u.pos.x, u.pos.z); u.pos.set(x, 0, z); u.prev.copy(u.pos); u.slide.set(0, 0); u.moveTarget = null; blinkFx(x, z);
+      sfx('blink', u.isPlayer ? 0.8 : earVol(u.pos) * 0.6, u.pos); break;
+    }
+    case 'cyclone': {
+      let t = tgt;
+      if (!t) { // enemy nearest the cursor, otherwise yourself
+        let best = 2.5; for (const o of units) if (o !== u && o.alive && canSeeUnit(u, o)) { const d = Math.hypot(o.pos.x - at.x, o.pos.z - at.z); if (d < best) { best = d; t = o; } }
+        t = t || u;
+      }
+      if (t !== u && Math.hypot(t.pos.x - u.pos.x, t.pos.z - u.pos.z) > D.range + 0.5) return 'Target is out of range';
+      t.cyclone = D.dur; t.cast = null; t.post = 0; t.tele.visible = false; t.moveTarget = null; t.salve = 0;
+      sfx('cyclone', u.isPlayer || t.isPlayer ? 0.8 : earVol(t.pos) * 0.6, t.pos); break;
+    }
+    case 'blade':
+      u.invis = D.dur; u.veilBonus = false;
+      for (let k = 0; k < 40; k++) { const a = rnd(0, 7); smoke.spawn(u.pos.x + Math.cos(a) * 0.5, rnd(0.3, 2.2), u.pos.z + Math.sin(a) * 0.5, Math.cos(a) * 0.8, rnd(0.2, 1), Math.sin(a) * 0.8, 1.2, 1.2, 2.6, [0.18, 0.1, 0.26], [0.02, 0.02, 0.04], 0, 1); }
+      sfx('veil', u.isPlayer ? 0.7 : earVol(u.pos) * 0.5, u.pos); break;
+    case 'avatar':
+      u.immune = D.durs[Math.min(u.avatarUses++, D.durs.length - 1)];
+      sfx('avatar', u.isPlayer ? 0.8 : earVol(u.pos) * 0.6, u.pos); break;
+  }
+  u.stats.used[it.id] = (u.stats.used[it.id] || 0) + 1;
+  if (it.id !== 'blade' && u.invis > 0) u.invis = 0; // using an item reveals you
+  it.cd = D.cd || 0;
+  if (u.items[i] === it && STACKS[it.id] && it.id === 'salve' && --it.charges <= 0) u.items[i] = null;
+  return true;
+}
+function blinkFx(x, z) {
+  for (let k = 0; k < 50; k++) { const a = rnd(0, 7), r = rnd(0, 0.8); particles.spawn(x + Math.cos(a) * r, rnd(0.2, 2.4), z + Math.sin(a) * r, Math.cos(a) * rnd(0.5, 2), rnd(-0.5, 1.5), Math.sin(a) * rnd(0.5, 2), rnd(0.3, 0.6), 0.6, 0.05, [0.5, 0.75, 1], [0.1, 0.1, 0.4], 0, 2); }
+  addFx(ringPool[ringI++ % ringPool.length], 0.35, 'ring', x, z, 0.3, 1.6, 0.9, 0x6aa8ff);
+}
+// Watcher Wards: an unseen eye on a staff. Only its owner sees it (and the vision it gives).
+const wardStaffGeo = new THREE.CylinderGeometry(0.035, 0.055, 1.2, 6).translate(0, 0.6, 0), wardEyeGeo = new THREE.SphereGeometry(0.14, 14, 10);
+const wardStaffMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.9 }), wardEyeMat = new THREE.MeshBasicMaterial({ color: 0xffb020 }); wardEyeMat.color.multiplyScalar(2.2); // bright enough to read as glowing after tone mapping
+function placeWard(u, x, z) {
+  if (u.wards.length >= ITEMS.ward.max) removeWard(u.wards[0]);
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  g.add(new THREE.Mesh(wardStaffGeo, wardStaffMat)); const eye = new THREE.Mesh(wardEyeGeo, wardEyeMat); eye.position.y = 1.35; g.add(eye);
+  const ring = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: 0xffd040, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.18 }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; ring.scale.setScalar(ITEMS.ward.vision); g.add(ring);
+  g.visible = u === player; scene.add(g); fowAll(g);
+  const w = { x, z, t: ITEMS.ward.life, owner: u, mesh: g, ring }; u.wards.push(w); return w;
+}
+function removeWard(w) { scene.remove(w.mesh); w.ring.material.dispose(); const a = w.owner.wards, i = a.indexOf(w); if (i >= 0) a.splice(i, 1); }
+function updateWards(dt) {
+  for (const u of units) for (let i = u.wards.length - 1; i >= 0; i--) {
+    const w = u.wards[i]; w.t -= dt;
+    if (w.t <= 0) { removeWard(w); continue; }
+    w.mesh.children[1].position.y = 1.35 + Math.sin(time * 2 + i) * 0.06;
+    if (u === player) for (let n = emitN(6, dt); n > 0; n--) particles.spawn(w.x + rnd(-0.1, 0.1), 1.35, w.z + rnd(-0.1, 0.1), rnd(-0.2, 0.2), rnd(0.2, 0.6), rnd(-0.2, 0.2), 0.8, 0.25, 0.05, [1, 0.75, 0.2], [0.4, 0.2, 0], 0, 0);
+    w.ring.material.opacity = 0.12 + Math.min(1, w.t / 5) * 0.08;
+  }
+}
+
 // ------------------------------------------------------------------ bots
 function pathCrossesLava(ax, az, bx, bz) {
   for (let i = 1; i < 12; i++) { const t = i / 12, h = hazardAt(ax + (bx - ax) * t, az + (bz - az) * t); if (h && h.type === 'lava') return true; }
   return false;
 }
 class Bot {
-  constructor(u, d) { this.u = u; this.d = d; this.think = rnd(0, 0.5); this.strafe = Math.random() < 0.5 ? 1 : -1; this.target = null; this.pendingCast = -1; this.castDelay = 0; }
+  constructor(u, d) { this.u = u; this.d = d; this.think = rnd(0, 0.5); this.strafe = Math.random() < 0.5 ? 1 : -1; this.target = null; this.pendingCast = -1; this.castDelay = 0; this.shopT = rnd(0.5, 2); this.fleeT = 0; }
+  // ---- items: shopping, then using them when they help
+  shop() {
+    const u = this.u, D = this.d;
+    if (u.hp < u.maxHp * 0.5 && slotOf(u, 'salve') < 0 && buyItem(u, 'salve') === true) return;
+    for (const id of D.plan) {
+      if (id === 'ward' && !fogOn) continue;
+      const own = slotOf(u, id);
+      if (own >= 0 || (ITEMS[id].needs === undefined && slotOf(u, 'treads') >= 0 && id === 'boots')) continue; // boots were upgraded
+      if (u.gold < priceFor(u, id)) return; // save up for the next item in the plan
+      let r = buyItem(u, id);
+      if (r === 'Inventory full' && !STACKS[id]) { // make room: sell the cheapest consumable or small item
+        const junk = ['ward', 'salve', 'wand', 'boots'].map(j => slotOf(u, j)).find(i => i >= 0);
+        if (junk !== undefined) { sellItem(u, junk); r = buyItem(u, id); }
+      }
+      if (r === true) return;
+    }
+  }
+  use(id, pt, tgt) { const i = slotOf(this.u, id); if (i < 0 || Math.random() > this.d.items) return false; return useItem(this.u, i, pt, tgt) === true; }
+  ready(id) { const i = slotOf(this.u, id); return i >= 0 && !(this.u.items[i].cd > 0); }
+  // a raze from `e` is about to land on us
+  defend(e) {
+    const u = this.u, c = e.razeCenter(e.cast.slot);
+    if (this.ready('avatar') && (u.hp < u.maxHp * 0.7 || e.cast.t < 0.15) && this.use('avatar')) return true;
+    if (this.ready('cyclone') && Math.hypot(e.pos.x - u.pos.x, e.pos.z - u.pos.z) < ITEMS.cyclone.range && this.use('cyclone', null, e)) return true;
+    if (this.ready('dagger') && gameTime - u.lockT > ITEMS.dagger.lock) {
+      const dx = u.pos.x - c.x, dz = u.pos.z - c.y, d = Math.hypot(dx, dz) || 1;
+      if (this.use('dagger', { x: u.pos.x + dx / d * 9, z: u.pos.z + dz / d * 9 })) return true;
+    }
+    return false;
+  }
+  sustain() {
+    const u = this.u, f = u.hp / u.maxHp, quiet = gameTime - u.lastHitT > 2.5;
+    const near = units.filter(o => o !== u && o.alive && canSeeUnit(u, o) && Math.hypot(o.pos.x - u.pos.x, o.pos.z - u.pos.z) < 9);
+    if (f < 0.55 && quiet && u.salve <= 0 && this.ready('salve') && this.use('salve')) return true;
+    const w = u.items[slotOf(u, 'wand')];
+    if (w && w.charges >= 4 && f < 0.45 && this.use('wand')) return true;
+    if (f < 0.32 && near.length && this.ready('blade') && this.use('blade')) { this.flee(near); return true; }
+    if (fogOn && u.wards.length < 1 && this.ready('ward')) {
+      const spot = MAP.runes.reduce((b, r) => Math.hypot(r[0] - u.pos.x, r[1] - u.pos.z) < Math.hypot(b[0] - u.pos.x, b[1] - u.pos.z) ? r : b);
+      if (Math.hypot(spot[0] - u.pos.x, spot[1] - u.pos.z) < ITEMS.ward.range + 2 && this.use('ward', { x: spot[0], z: spot[1] })) return true;
+    }
+    return false;
+  }
+  flee(from) {
+    let best = null, bd = -1;
+    for (let i = 0; i < 8; i++) { const p = freeSpot(3); const d = Math.min(...from.map(o => Math.hypot(o.pos.x - p.x, o.pos.z - p.z))); if (d > bd) { bd = d; best = p; } }
+    this.fleeT = 2.5; this.goTo(best.x, best.z);
+  }
   step(dt) {
     const u = this.u, D = this.d;
-    if (!u.alive || u.cast) return;
+    if (!u.alive || u.cyclone > 0) return;
+    if ((this.shopT -= dt) <= 0) { this.shopT = 1.5; this.shop(); }
+    if (u.cast) return;
     if (this.pendingCast >= 0) { this.castDelay -= dt; if (this.castDelay <= 0) { u.castRaze(this.pendingCast); this.pendingCast = -1; } return; }
     this.think -= dt; if (this.think > 0) return;
     this.think = D.react * rnd(0.6, 1.4);
     // escape lava immediately
     const hz = hazardAt(u.pos.x, u.pos.z);
     if (hz && hz.type === 'lava') { const side = u.pos.z >= 0 ? 1 : -1; u.moveTo(u.pos.x, u.pos.z + side * 3); return; }
-    // dodge incoming razes
+    // dodge incoming razes (or answer them with an item)
     for (const e of units) {
       if (e === u || !e.alive || !e.cast || !canSee(u, e.pos.x, e.pos.z)) continue;
       const c = e.razeCenter(e.cast.slot), dx = u.pos.x - c.x, dz = u.pos.z - c.y, d = Math.hypot(dx, dz);
-      if (d < CFG.razeR + 0.9 && Math.random() < D.dodge) {
+      if (d < CFG.razeR + 0.9 && u.immune <= 0 && this.defend(e)) { this.think = 0.2; return; }
+      if (d < CFG.razeR + 0.9 && u.immune <= 0 && Math.random() < D.dodge) {
         let ax = dx, az = dz; if (d < 0.3) { ax = Math.cos(e.facing); az = -Math.sin(e.facing); }
         const l = Math.hypot(ax, az); this.goTo(u.pos.x + ax / l * 3, u.pos.z + az / l * 3, true); this.think = 0.3; return;
       }
     }
+    if (this.sustain()) return;
+    if (this.fleeT > 0) { this.fleeT -= D.react; return; } // keep running
     // runes
     if (rune && Math.random() < D.rune) {
       const rd = Math.hypot(rune.x - u.pos.x, rune.z - u.pos.z);
       const closer = units.some(o => o !== u && o.alive && Math.hypot(rune.x - o.pos.x, rune.z - o.pos.z) < rd * 0.7);
       if (rd < 14 && !closer) { this.goTo(rune.x, rune.z); return; }
     }
-    if (this.target && this.target.alive && canSee(u, this.target.pos.x, this.target.pos.z)) this.lastSeen = { x: this.target.pos.x, z: this.target.pos.z, t: gameTime };
-    if (!this.target || !this.target.alive || !canSee(u, this.target.pos.x, this.target.pos.z) || Math.random() < 0.05) {
+    if (this.target && this.target.alive && canSeeUnit(u, this.target)) this.lastSeen = { x: this.target.pos.x, z: this.target.pos.z, t: gameTime };
+    if (!this.target || !this.target.alive || !canSeeUnit(u, this.target) || Math.random() < 0.05) {
       let best = null, bd = 1e9;
-      for (const o of units) if (o !== u && o.alive && canSee(u, o.pos.x, o.pos.z)) { const d = o.pos.distanceTo(u.pos) + (o.isPlayer ? -1.5 : 0) + rnd(0, 3); if (d < bd) { bd = d; best = o; } }
+      for (const o of units) if (o !== u && o.alive && canSeeUnit(u, o)) { const d = o.pos.distanceTo(u.pos) + (o.isPlayer ? -1.5 : 0) + rnd(0, 3); if (d < bd) { bd = d; best = o; } }
       this.target = best;
     }
     const t = this.target;
@@ -1201,13 +1486,21 @@ class Bot {
       if (!this.wander || Math.hypot(this.wander.x - u.pos.x, this.wander.z - u.pos.z) < 1.5 || Math.random() < 0.02) this.wander = freeSpot(3);
       this.goTo(this.wander.x, this.wander.z); return;
     }
+    { // close the gap: blink to mid-raze range, or slip in under the veil
+      const td = Math.hypot(t.pos.x - u.pos.x, t.pos.z - u.pos.z);
+      if (td > 9.5 && td < 17 && u.hp > u.maxHp * 0.5 && this.ready('dagger') && gameTime - u.lockT > ITEMS.dagger.lock) {
+        const k = (td - CFG.razeDist[1]) / td;
+        if (this.use('dagger', { x: u.pos.x + (t.pos.x - u.pos.x) * k, z: u.pos.z + (t.pos.z - u.pos.z) * k })) { this.think = 0.05; return; }
+      }
+      if (td > 12 && u.hp > u.maxHp * 0.6 && u.invis <= 0 && this.ready('blade') && this.use('blade')) return;
+    }
     const lead = (CFG.castTime + D.cast) * D.lead;
     const px = t.pos.x + t.vel.x * lead + rnd(-D.aimErr, D.aimErr) * 0.5, pz = t.pos.z + t.vel.z * lead + rnd(-D.aimErr, D.aimErr) * 0.5;
     const dx = px - u.pos.x, dz = pz - u.pos.z, d = Math.hypot(dx, dz) || 0.01, ang = Math.atan2(dx, dz);
     const diff = Math.abs(wrap(ang - u.facing));
     let best = -1, err = 1e9;
     for (let s = 0; s < 3; s++) if (u.cd[s] <= 0) { const e = Math.abs(d - CFG.razeDist[s]); if (e < err) { err = e; best = s; } }
-    if (best >= 0 && err < CFG.razeR * 0.6 && t.prot <= 0) {
+    if (best >= 0 && err < CFG.razeR * 0.6 && t.prot <= 0 && t.immune <= 0 && t.cyclone <= 0.4) {
       if (diff < 0.2) { this.pendingCast = best; this.castDelay = D.cast * rnd(0.5, 1.5); u.moveTarget = null; return; }
       u.moveTarget = null; u.faceAngle = ang; this.think = 0.05; return;
     }
@@ -1243,25 +1536,37 @@ function groundPoint(e) {
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 renderer.domElement.addEventListener('mousedown', e => {
   if (state !== 'play' || !player) return;
-  if (e.button === 2) { rightDown = true; const p = groundPoint(e); if (p) { player.moveTo(p.x, p.z); clickFx(p.x, p.z); } }
+  if (e.button === 2) {
+    rightDown = true; const p = groundPoint(e); if (!p) return;
+    const shop = (MAP.shops || []).find(o => Math.hypot(o.x - p.x, o.z - p.z) < 2.6);
+    if (shop) { // walk up to the Soul Merchant; the shop opens on arrival
+      const dx = player.pos.x - shop.x, dz = player.pos.z - shop.z, d = Math.hypot(dx, dz) || 1;
+      player.moveTo(shop.x + dx / d * 2.8, shop.z + dz / d * 2.8); player.wantShop = shop; rightDown = false; return;
+    }
+    player.wantShop = null; player.moveTo(p.x, p.z); clickFx(p.x, p.z);
+  }
 });
 addEventListener('mouseup', e => { if (e.button === 2) rightDown = false; });
+let cursor = null; // ground point under the mouse, for quick-cast items
 renderer.domElement.addEventListener('mousemove', e => {
+  cursor = groundPoint(e);
   if (rightDown && state === 'play' && player) { const p = groundPoint(e); if (p) player.moveTo(p.x, p.z); }
 });
 addEventListener('wheel', e => { zoom = Math.max(0.6, Math.min(1.5, zoom + Math.sign(e.deltaY) * 0.08)); });
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase(); keys[k] = true;
   if (state !== 'play' || !player || e.repeat) return;
-  const slot = { z: 0, x: 1, c: 2, '1': 0, '2': 1, '3': 2 }[k];
+  const slot = { z: 0, x: 1, c: 2 }[k];
   if (slot !== undefined) player.castRaze(slot);
+  if (k >= '1' && k <= '6') playerUseItem(+k - 1);
+  if (k === 'b') toggleShop();
   if (k === 's' && settings.move === 'mouse') { player.moveTarget = null; }
   if (k === 'm') { AUD.muted = !AUD.muted; announce('', AUD.muted ? 'Sound muted (M)' : 'Sound on (M)'); }
-  if (k === 'escape') pauseToMenu();
+  if (k === 'escape') { if (shopOpen) toggleShop(false); else pauseToMenu(); }
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') pauseToMenu(); });
-function pauseToMenu() { state = 'menu'; $('menu').classList.remove('hidden'); $('play').textContent = 'RESUME'; AUD.stopAmbient(); }
+function pauseToMenu() { toggleShop(false); state = 'menu'; $('menu').classList.remove('hidden'); $('play').textContent = 'RESUME'; AUD.stopAmbient(); }
 function wasd() {
   if (settings.move !== 'wasd') return null;
   return { x: (keys.d ? 1 : 0) - (keys.a ? 1 : 0), z: (keys.s ? 1 : 0) - (keys.w ? 1 : 0) };
@@ -1279,6 +1584,85 @@ function announce(big, small, voiceKey) {
   $('announce').textContent = big; $('sub-announce').textContent = small; $('announce').style.opacity = big ? 1 : 0; $('sub-announce').style.opacity = 1; annT = 2.8;
 }
 function killfeed(html) { const d = document.createElement('div'); d.innerHTML = html; $('killfeed').prepend(d); while ($('killfeed').children.length > 6) $('killfeed').lastChild.remove(); setTimeout(() => d.remove(), 7000); }
+let errT = 0;
+function showErr(msg) { $('err').textContent = msg; $('err').style.opacity = 1; errT = 1.6; sfx('error', 0.5); }
+function playerUseItem(i) {
+  if (!player) return;
+  const r = useItem(player, i, cursor);
+  if (r !== true) showErr(r); else refreshInv();
+}
+function itemTipHTML(id, u) {
+  const D = ITEMS[id], price = u ? priceFor(u, id) : D.cost;
+  return `<h3>${D.name}</h3><div class="classic">In the spirit of DotA's ${D.classic}</div>` +
+    `<div class="cost"><i></i> ${price}${price !== D.cost ? ` (${D.cost} + ${ITEMS[D.needs].name})` : ''}</div>` +
+    `<ul>${D.stats.map(x => `<li>${x}</li>`).join('')}</ul><div class="desc">${D.desc}</div>`;
+}
+// inventory: six slots, hotkeys 1-6. Left-click uses, right-click sells, hover explains.
+const invEls = [];
+for (let i = 0; i < 6; i++) {
+  const el = document.createElement('div'); el.className = 'islot empty';
+  el.innerHTML = `<img alt=""><div class="cd"></div><span class="k">${i + 1}</span><span class="n"></span><span class="t"></span>`;
+  el.addEventListener('mousedown', e => { e.stopPropagation(); if (!player) return; if (e.button === 0) playerUseItem(i); if (e.button === 2 && player.items[i] && sellItem(player, i)) { sfx('coin', 0.5); refreshInv(); } });
+  el.addEventListener('contextmenu', e => e.preventDefault());
+  el.addEventListener('mouseenter', () => { const it = player && player.items[i]; if (!it) return; const r = el.getBoundingClientRect(), T = $('itemTip'); T.innerHTML = itemTipHTML(it.id) + '<div class="classic">Right-click to sell for half</div>'; T.style.left = Math.min(innerWidth - 270, r.left - 100) + 'px'; T.style.bottom = (innerHeight - r.top + 8) + 'px'; T.classList.remove('hidden'); });
+  el.addEventListener('mouseleave', () => $('itemTip').classList.add('hidden'));
+  $('inv').appendChild(el); invEls.push(el);
+}
+let invSig = '';
+function refreshInv() { invSig = ''; }
+function updateInv() {
+  const sig = player.items.map(it => it ? it.id + ':' + (it.charges ?? '') : '-').join('|');
+  if (sig !== invSig) {
+    invSig = sig;
+    player.items.forEach((it, i) => {
+      const el = invEls[i], img = el.querySelector('img');
+      el.className = 'islot' + (it ? ITEMS[it.id].kind === 'passive' ? ' passive' : '' : ' empty');
+      if (it) { if (img.dataset.id !== it.id) { img.src = iconURL(it.id); img.dataset.id = it.id; } img.style.visibility = ''; }
+      else { img.style.visibility = 'hidden'; img.dataset.id = ''; el.querySelector('.cd').style.height = '0'; el.querySelector('.t').textContent = ''; }
+      el.querySelector('.n').textContent = it && it.charges !== undefined ? it.charges : '';
+    });
+  }
+  player.items.forEach((it, i) => {
+    if (!it) return; const D = ITEMS[it.id], el = invEls[i];
+    el.querySelector('.cd').style.height = D.cd && it.cd > 0 ? (it.cd / D.cd * 100) + '%' : '0';
+    el.querySelector('.t').textContent = it.cd > 0.05 ? Math.ceil(it.cd) : '';
+    el.classList.toggle('active-ready', D.kind !== 'passive' && !(it.cd > 0));
+  });
+  $('goldText').textContent = Math.floor(player.gold);
+}
+// the shop panel
+let shopOpen = false;
+const shopEls = {};
+for (const id of SHOP) {
+  const el = document.createElement('div'); el.className = 'sitem';
+  el.innerHTML = `<img src="${iconURL(id)}" alt="${ITEMS[id].name}"><div class="cost"><i></i><span>${ITEMS[id].cost}</span></div>`;
+  el.addEventListener('mouseenter', () => { $('shopTip').innerHTML = itemTipHTML(id, player); });
+  el.addEventListener('mousedown', e => {
+    e.stopPropagation(); if (!player) return;
+    const r = buyItem(player, id);
+    if (r === true) { sfx('buy', 0.7); el.querySelector('img').animate([{ transform: 'scale(1.15)' }, { transform: 'scale(1)' }], 180); refreshInv(); $('shopTip').innerHTML = itemTipHTML(id, player); }
+    else showErr(r);
+  });
+  el.addEventListener('contextmenu', e => e.preventDefault());
+  $('shopGrid').appendChild(el); shopEls[id] = el;
+}
+$('shopClose').onclick = () => toggleShop(false);
+$('shopBtn').onclick = () => toggleShop();
+$('shop').addEventListener('contextmenu', e => e.preventDefault());
+function toggleShop(open = !shopOpen) {
+  if (open && (!player || state !== 'play')) return;
+  shopOpen = open; $('shop').classList.toggle('hidden', !open);
+  if (open) { sfx('shopOpen', 0.5); updateShop(); } else $('itemTip').classList.add('hidden');
+}
+function updateShop() {
+  $('shopGold').textContent = Math.floor(player.gold);
+  for (const id of SHOP) {
+    const el = shopEls[id], price = priceFor(player, id);
+    el.classList.toggle('poor', player.gold < price);
+    el.classList.toggle('owned', slotOf(player, id) >= 0);
+    el.querySelector('.cost span').textContent = price;
+  }
+}
 const mm = $('minimap').getContext('2d'); const slots = [...document.querySelectorAll('.slot')];
 const tmpV = new THREE.Vector3();
 function project(p, y) { tmpV.set(p.x, y, p.z).project(camera); return [(tmpV.x * 0.5 + 0.5) * innerWidth, (-tmpV.y * 0.5 + 0.5) * innerHeight, tmpV.z]; }
@@ -1288,7 +1672,7 @@ function updateHud(dt) {
     const [x, y, z] = project(u.pos, 3.5);
     const show = u.alive && z < 1 && u.seen !== false;
     u.label.style.display = show ? '' : 'none';
-    if (show) { u.label.style.left = x + 'px'; u.label.style.top = y + 'px'; const f = u.hp / CFG.hp; u.hbEl.style.width = (f * 100) + '%'; u.hbEl.style.background = f > 0.5 ? '#4adf4a' : f > 0.25 ? '#e0c030' : '#e04030'; }
+    if (show) { u.label.style.left = x + 'px'; u.label.style.top = y + 'px'; const f = u.hp / u.maxHp; u.hbEl.style.width = (f * 100) + '%'; u.hbEl.style.background = f > 0.5 ? '#4adf4a' : f > 0.25 ? '#e0c030' : '#e04030'; }
   }
   for (let i = floats.length - 1; i >= 0; i--) {
     const f = floats[i]; f.t += dt; f.p.y += dt * 1.6;
@@ -1302,8 +1686,15 @@ function updateHud(dt) {
     el.querySelector('.t').textContent = cd > 0.05 ? cd.toFixed(1) : '';
   });
   $('soulCount').textContent = player.souls;
-  $('hpFill').style.width = (player.hp / CFG.hp * 100) + '%';
-  $('hpText').textContent = `${Math.ceil(player.hp)} / ${CFG.hp}`;
+  updateInv(); if (shopOpen) updateShop();
+  if (errT > 0) { errT -= dt; if (errT <= 0) $('err').style.opacity = 0; }
+  { // the Soul Merchant: open on arrival after right-clicking it; hint when standing near one
+    const near = (MAP.shops || []).some(o => Math.hypot(o.x - player.pos.x, o.z - player.pos.z) < 4.5);
+    if (player.wantShop && Math.hypot(player.wantShop.x - player.pos.x, player.wantShop.z - player.pos.z) < 3.6) { player.wantShop = null; toggleShop(true); }
+    $('shopHint').style.opacity = near && !shopOpen && player.alive ? 1 : 0;
+  }
+  $('hpFill').style.width = (player.hp / player.maxHp * 100) + '%';
+  $('hpText').textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
   $('respawn').textContent = player.alive ? '' : `Respawning in ${Math.max(0, player.respawnT).toFixed(1)}…`;
   const bh = Object.keys(RUNES).filter(k => player.buffs[k] > 0).map(k => `<span style="border-color:${RUNES[k].css};color:${RUNES[k].css}">${RUNES[k].name} ${player.buffs[k].toFixed(0)}s</span>`).join('');
   if (bh !== lastBuffs) { $('buffs').innerHTML = bh; lastBuffs = bh; }
@@ -1331,6 +1722,8 @@ function drawMinimap() {
   for (const c of MAP.ice || []) { mm.fillStyle = '#7aa4c8'; mm.beginPath(); mm.arc(X(c.x), X(c.z), c.r * k, 0, 7); mm.fill(); }
   if (fogOn && player) { const r = FOW_U.fowRect.value; mm.imageSmoothingEnabled = true; mm.drawImage(fowCanvas, X(r.x), X(r.y), r.z * k, r.w * k); }
   mm.fillStyle = '#000a'; for (const o of MAP.obstacles) { mm.beginPath(); mm.arc(X(o.x), X(o.z), o.r * k + 1, 0, 7); mm.fill(); }
+  for (const o of MAP.shops || []) { mm.fillStyle = '#ffc040'; mm.fillRect(X(o.x) - 4, X(o.z) - 4, 8, 8); mm.strokeStyle = '#000'; mm.lineWidth = 1; mm.strokeRect(X(o.x) - 4, X(o.z) - 4, 8, 8); }
+  if (player) for (const w of player.wards) { mm.fillStyle = '#ffd040'; mm.beginPath(); mm.arc(X(w.x), X(w.z), 2.5, 0, 7); mm.fill(); }
   if (rune) { mm.fillStyle = RUNES[rune.type].css; mm.beginPath(); mm.arc(X(rune.x), X(rune.z), 4, 0, 7); mm.fill(); }
   for (const u of units) {
     if (!u.alive || u.seen === false) continue;
@@ -1360,6 +1753,7 @@ function startGame() {
   $('menu').classList.add('hidden'); $('end').classList.add('hidden'); $('hud').classList.remove('hidden');
   $('help').style.display = ''; setTimeout(() => { $('help').style.display = 'none'; }, 15000);
   $('killfeed').innerHTML = ''; announce('', `${MAP.name} — harvest their souls!`);
+  toggleShop(false); refreshInv();
   state = 'play';
 }
 function endGame(w) {
@@ -1390,31 +1784,33 @@ $('optMap').onchange = () => { if (state === 'menu' && !units.length) buildMap($
 // ------------------------------------------------------------------ main loop
 let last = performance.now(), acc = 0, time = 0, beatT = 0;
 const camPos = new THREE.Vector3(0, 30, 30), camLook = new THREE.Vector3(), tmpCam = new THREE.Vector3();
+// one fixed simulation step (60 Hz): bots think, units move, units push each other apart
+function simStep(st) {
+  gameTime += st;
+  if (state === 'play') {
+    bots.forEach(b => b.step(st));
+    if (!rune) { runeT -= st; if (runeT <= 0) spawnRune(); }
+  }
+  units.forEach(u => u.step(st, u.isPlayer ? wasd() : null));
+  for (let i = 0; i < units.length; i++) for (let j = i + 1; j < units.length; j++) {
+    const a = units[i], b = units[j]; if (!a.alive || !b.alive) continue;
+    const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz), m = CFG.unitR * 2;
+    if (d < m && d > 1e-4) { const p = (m - d) / 2 / d; a.pos.x -= dx * p; a.pos.z -= dz * p; b.pos.x += dx * p; b.pos.z += dz * p; }
+  }
+}
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000); last = now; time += dt; timeU.value = time;
   if (state === 'play' || state === 'end') {
     acc += dt;
-    while (acc >= CFG.step) {
-      const st = CFG.step; gameTime += st;
-      if (state === 'play') {
-        bots.forEach(b => b.step(st));
-        if (!rune) { runeT -= st; if (runeT <= 0) spawnRune(); }
-      }
-      units.forEach(u => u.step(st, u.isPlayer ? wasd() : null));
-      for (let i = 0; i < units.length; i++) for (let j = i + 1; j < units.length; j++) {
-        const a = units[i], b = units[j]; if (!a.alive || !b.alive) continue;
-        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz), m = CFG.unitR * 2;
-        if (d < m && d > 1e-4) { const p = (m - d) / 2 / d; a.pos.x -= dx * p; a.pos.z -= dz * p; b.pos.x += dx * p; b.pos.z += dz * p; }
-      }
-      acc -= st;
-    }
+    while (acc >= CFG.step) { simStep(CFG.step); acc -= CFG.step; }
   }
   units.forEach(u => u.visual(dt, time));
   updateFog(dt);
   if (state === 'play') adaptResolution(dt);
-  if (state === 'play' && player && player.alive && player.hp < CFG.hp * 0.3) { beatT -= dt; if (beatT <= 0) { beatT = 0.55 + player.hp / CFG.hp * 1.2; sfx('heartbeat', 0.8); } } else beatT = 0;
-  updateOrbs(dt);
+  if (state === 'play' && player && player.alive && player.hp < player.maxHp * 0.3) { beatT -= dt; if (beatT <= 0) { beatT = 0.55 + player.hp / player.maxHp * 1.2; sfx('heartbeat', 0.8); } } else beatT = 0;
+  updateOrbs(dt); updateWards(dt);
+  if (mapGroup) for (const c of mapGroup.userData.coins || []) c.rotation.y += dt * 2.2;
   // ambience per map
   const m = MAP;
   if (m.theme === 'molten') {
@@ -1474,7 +1870,7 @@ function prewarm() { // compile every effect shader now, not on the first raze/r
 // ------------------------------------------------------------------ boot
 async function boot() {
   $('play').disabled = true; $('loadState').textContent = 'Summoning the Shadow Fiend…';
-  const P = window.SFA_PROPS || {}, kinds = ['obelisk', 'gargoyle', 'column', 'tree', 'treeFar', 'ice'];
+  const P = window.SFA_PROPS || {}, kinds = ['obelisk', 'gargoyle', 'column', 'tree', 'treeFar', 'ice', 'shop']; // shop: only if a model was added
   const [hero, heroShadow, ...props] = await Promise.all([parseGLB(window.HERO_GLB_B64), parseGLB(window.HERO_SHADOW_GLB_B64), ...kinds.map(k => parseGLB(P[k]))]);
   if (hero) {
     heroTemplate = fitModel(hero, HERO_H);
@@ -1500,5 +1896,6 @@ boot();
 window.__game = { renderer, get fogOn() { return fogOn; },  get units() { return units; }, get state() { return state; }, get map() { return MAP; }, get rune() { return rune; }, CFG, buildMap: id => buildMap(id),
   get quality() { return { rung, autoQuality, heroShadows, fxDensity, pixelRatio: renderer.getPixelRatio() }; },
   set devCam(c) { devCam = c; },
+  dev: { advance(sec) { for (let i = 0; i < Math.round(sec / CFG.step); i++) simStep(CFG.step); }, useItem, buyItem, sellItem, canSeeUnit, canSee, damage, resolveRaze, get bots() { return bots; } },
   forceQuality(pr) { autoQuality = false; rung = 0; baseDpr = pr; applyRung(); } }; // for dev/bench.js
 })();

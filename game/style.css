@@ -39,7 +39,7 @@ button:hover { filter: brightness(1.2); }
 #hpFill { height: 100%; width: 100%; background: linear-gradient(#4adf4a, #1d8a1d); transition: width .1s; }
 #hpText { position: absolute; inset: 0; text-align: center; font-size: 13px; line-height: 18px; text-shadow: 0 1px 2px #000; }
 #respawn { position: absolute; top: 45%; width: 100%; text-align: center; font-size: 28px; color: #ff8a6a; text-shadow: 0 2px 6px #000; }
-#help { position: absolute; bottom: 92px; width: 100%; text-align: center; font-size: 12px; color: #a08478cc; text-shadow: 0 1px 2px #000; }
+#help { position: absolute; bottom: 140px; width: 100%; text-align: center; font-size: 12px; color: #a08478cc; text-shadow: 0 1px 2px #000; }
 
 #labels { position: fixed; inset: 0; pointer-events: none; z-index: 4; }
 .ulabel { position: absolute; transform: translate(-50%, -100%); text-align: center; font-size: 12px; text-shadow: 0 1px 2px #000, 0 0 3px #000; white-space: nowrap; }
@@ -54,3 +54,45 @@ input[type=range] { width: 190px; accent-color: #d8340a; }
 #buffs span { font-size: 12px; font-weight: bold; padding: 3px 7px; background: #000c; border: 1px solid; border-radius: 3px; }
 #bar { position: absolute; }
 .credits { font-size: 10px; color: #6a5048; margin: 8px 0 0; }
+
+/* ---------------------------------------------------------------- gold, inventory, shop (stage 3) */
+#invWrap { display: flex; flex-direction: column; gap: 4px; align-self: flex-end; }
+#gold { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 6px; background: #0a0606d8; border: 1px solid #5a4210; border-radius: 3px; font-weight: bold; color: #ffd75a; text-shadow: 0 1px 2px #000; pointer-events: auto; }
+#gold i, .shop-gold i, .cost i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff2b0, #e2a92a 55%, #7a4d0c); box-shadow: 0 0 4px #ffb02a80; }
+#goldText { min-width: 44px; }
+#shopBtn { margin: 0 0 0 auto; width: auto; padding: 1px 7px; font-size: 11px; letter-spacing: 1px; background: linear-gradient(#5a3a0a, #2a1a04); border: 1px solid #b8862a; box-shadow: none; color: #ffe2a0; }
+#shopBtn b { color: #fff; }
+#inv { display: grid; grid-template-columns: repeat(3, 44px); grid-gap: 3px; }
+.islot { position: relative; width: 44px; height: 44px; background: #0b0707e0; border: 1px solid #3a2a18; border-radius: 3px; overflow: hidden; pointer-events: auto; cursor: pointer; }
+.islot img { width: 100%; height: 100%; display: block; }
+.islot .k { position: absolute; left: 2px; top: 0; font-size: 11px; font-weight: bold; color: #fff; text-shadow: 0 0 3px #000, 0 1px 1px #000; z-index: 3; }
+.islot .n { position: absolute; right: 2px; bottom: 0; font-size: 11px; font-weight: bold; color: #fff; text-shadow: 0 0 3px #000; z-index: 3; }
+.islot .cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: #000b; z-index: 2; }
+.islot .t { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold; z-index: 3; text-shadow: 0 0 4px #000; }
+.islot.passive { border-color: #4a3a22; }
+.islot.active-ready { border-color: #c8962a; box-shadow: 0 0 6px #ffb02a60 inset; }
+.islot.empty { background: #0b0707a0; cursor: default; }
+#err { position: absolute; bottom: 188px; width: 100%; text-align: center; font-size: 15px; font-weight: bold; color: #ff5a4a; text-shadow: 0 2px 3px #000; opacity: 0; transition: opacity .3s; }
+#shopHint { position: absolute; bottom: 164px; width: 100%; text-align: center; font-size: 13px; color: #ffd75a; text-shadow: 0 2px 3px #000; opacity: 0; transition: opacity .3s; }
+#shopHint b { color: #fff; }
+#shop { position: fixed; right: 14px; bottom: 120px; width: 300px; z-index: 8; background: linear-gradient(#1e140c, #0d0805); border: 2px solid #6a4a1a; border-radius: 6px; box-shadow: 0 0 0 1px #000, 0 8px 30px #000c, inset 0 0 24px #0008; user-select: none; }
+.shop-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid #4a3212; background: linear-gradient(#3a260c, #1a1006); }
+.shop-title { font-weight: bold; letter-spacing: 2px; color: #ffcf6a; text-shadow: 0 0 8px #ff9a2a60; }
+.shop-gold { margin-left: auto; font-weight: bold; color: #ffd75a; display: flex; align-items: center; gap: 5px; }
+#shopClose { margin: 0; width: 24px; height: 24px; padding: 0; font-size: 18px; line-height: 20px; letter-spacing: 0; background: #2a1a0a; border: 1px solid #6a4a1a; box-shadow: none; }
+#shopGrid { display: grid; grid-template-columns: repeat(4, 64px); grid-gap: 6px; padding: 10px; justify-content: center; }
+.sitem { position: relative; width: 64px; cursor: pointer; text-align: center; }
+.sitem img { width: 64px; height: 64px; display: block; border: 1px solid #000; border-radius: 3px; transition: transform .08s, filter .15s; }
+.sitem:hover img { transform: translateY(-1px); box-shadow: 0 0 10px #ffb02a80; }
+.sitem .cost { display: flex; align-items: center; justify-content: center; gap: 3px; font-size: 12px; font-weight: bold; color: #ffd75a; margin-top: 2px; }
+.sitem .cost i { width: 9px; height: 9px; }
+.sitem.poor img { filter: grayscale(.85) brightness(.55); }
+.sitem.poor .cost { color: #a07a6a; }
+.sitem.owned::after { content: '\2714'; position: absolute; right: 2px; top: 2px; font-size: 12px; color: #7aff8a; text-shadow: 0 0 3px #000; }
+#shopTip { min-height: 118px; padding: 9px 12px 11px; border-top: 1px solid #4a3212; font-size: 12px; line-height: 1.45; color: #e8d8c8; }
+#shopTip h3, #itemTip h3 { margin: 0 0 2px; font-size: 15px; color: #ffcf6a; }
+#shopTip .classic, #itemTip .classic { font-size: 11px; color: #9a8472; font-style: italic; }
+#shopTip ul, #itemTip ul { margin: 5px 0; padding-left: 16px; color: #9ae8a8; }
+#shopTip .desc, #itemTip .desc { color: #d8c8b8; }
+.tip-empty { margin: 18px 0 0; color: #9a8472; text-align: center; }
+#itemTip { position: fixed; z-index: 9; width: 250px; padding: 8px 11px; background: #120c08f2; border: 1px solid #6a4a1a; border-radius: 4px; font-size: 12px; line-height: 1.45; color: #e8d8c8; pointer-events: none; box-shadow: 0 6px 20px #000a; }

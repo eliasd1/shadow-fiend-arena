@@ -20,11 +20,23 @@
     <div class="slot" data-slot="1"><div class="cd"></div><b>X</b><i>Mid</i><span class="t"></span></div>
     <div class="slot" data-slot="2"><div class="cd"></div><b>C</b><i>Far</i><span class="t"></span></div>
     <div id="hpWrap"><div id="hpFill"></div><span id="hpText"></span></div>
+    <div id="invWrap">
+      <div id="gold" title="Gold: kills, assists and 2 per second"><i></i><span id="goldText">0</span><button id="shopBtn" title="Shop (B)">SHOP <b>B</b></button></div>
+      <div id="inv"></div>
+    </div>
   </div>
+  <div id="err"></div>
+  <div id="shopHint">Press <b>B</b> or right-click the Soul Merchant to shop</div>
   <div id="respawn"></div>
-  <div id="help">Right-click: move &nbsp;·&nbsp; Z / X / C: near / mid / far raze (fires the way you face) &nbsp;·&nbsp; S: stop &nbsp;·&nbsp; M: mute &nbsp;·&nbsp; Wheel: zoom &nbsp;·&nbsp; Esc: menu &nbsp;·&nbsp; Grab runes for Haste, Double Damage or Regeneration</div>
+  <div id="help">Right-click: move &nbsp;·&nbsp; Z / X / C: near / mid / far raze (fires the way you face) &nbsp;·&nbsp; 1–6: items &nbsp;·&nbsp; B: shop &nbsp;·&nbsp; S: stop &nbsp;·&nbsp; M: mute &nbsp;·&nbsp; Wheel: zoom &nbsp;·&nbsp; Esc: menu &nbsp;·&nbsp; Grab runes for Haste, Double Damage or Regeneration</div>
 </div>
 <div id="labels"></div>
+<div id="shop" class="hidden">
+  <div class="shop-head"><span class="shop-title">SOUL MERCHANT</span><span class="shop-gold"><i></i><span id="shopGold">0</span></span><button id="shopClose" title="Close (B / Esc)">&times;</button></div>
+  <div id="shopGrid"></div>
+  <div id="shopTip"><p class="tip-empty">Hover an item for details. Click to buy.<br>Right-click an inventory slot to sell for half.</p></div>
+</div>
+<div id="itemTip" class="hidden"></div>
 
 <div id="menu" class="overlay">
   <div class="panel">
@@ -39,7 +51,7 @@
     <div class="row"><label>Sound volume</label><input id="optVol" type="range" min="0" max="100" value="70"></div>
     <div class="row"><label>Graphics</label><select id="optGfx"><option value="high" selected>High</option><option value="low">Performance</option></select></div>
     <button id="play">PLAY</button>
-    <p class="keys">Razes fire in the direction your hero faces, just like the original.<br>Every hit gives a soul; souls make your razes hit harder. Dying costs half of them.</p>
+    <p class="keys">Razes fire in the direction your hero faces, just like the original.<br>Every hit gives a soul; souls make your razes hit harder. Dying costs half of them.<br>Earn gold, press <b>B</b> to shop, use items with <b>1–6</b>.</p>
     <p id="loadState"></p>
     <p class="credits">Announcer voice: "Announcer kill sounds" by TripleSnail, recorded by Antti Saari — CC-BY 3.0 (opengameart.org)</p>
   </div>
@@ -51,6 +63,7 @@
 <script src="hero-data.js"></script>
 <script src="props-data.js"></script>
 <script src="announcer-data.js"></script>
+<script src="items.js"></script>
 <script src="audio.js"></script>
 <script src="game.js"></script>
 </body>

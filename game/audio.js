@@ -188,8 +188,46 @@ const SOUNDS = {
     const o = osc('sine', t, 1.2, 90, 30), g = gain(); env(g.gain, t, 0.01, 0.8, 1.2); chain(o, g, out);
     for (const det of [-10, 10]) { const s = osc('sawtooth', t, 1.4, 73.4, 73.4, det), lp = filt('lowpass', 600), sg = gain(); env(sg.gain, t, 0.02, 0.12, 1.4); chain(s, lp, sg, out); }
   },
+  // ---- items and shop
+  // gold coins: two bright metallic pings
+  coin(out, t) {
+    for (const [dt, f] of [[0, 2093], [0.07, 2637]]) { const o = osc('square', t + dt, 0.18, f), g = gain(); env(g.gain, t + dt, 0.002, 0.12, 0.18); chain(o, filt('bandpass', f, 3), g, out); }
+  },
+  // purchase: coin pouch thud plus a chime
+  buy(out, t) {
+    const n = noise(t, 0.12), g = gain(); env(g.gain, t, 0.003, 0.4, 0.12); chain(n, filt('lowpass', 900), g, out);
+    for (const [dt, f] of [[0.03, 1568], [0.09, 2093], [0.15, 2637]]) { const o = osc('triangle', t + dt, 0.35, f), gg = gain(); env(gg.gain, t + dt, 0.003, 0.14, 0.35); chain(o, gg, out); }
+  },
+  shopOpen(out, t) { const n = noise(t, 0.25), bp = filt('bandpass', 700, 1.5), g = gain(); bp.frequency.setValueAtTime(400, t); bp.frequency.exponentialRampToValueAtTime(1500, t + 0.2); env(g.gain, t, 0.02, 0.25, 0.25); chain(n, bp, g, out); },
+  error(out, t) { const o = osc('square', t, 0.14, 160, 120), g = gain(); env(g.gain, t, 0.004, 0.18, 0.14); chain(o, filt('lowpass', 900), g, out); },
+  // Shadowstep: a short reversed whoosh into a pop
+  blink(out, t) {
+    const n = noise(t, 0.3), bp = filt('bandpass', 400, 2), g = gain();
+    bp.frequency.setValueAtTime(300, t); bp.frequency.exponentialRampToValueAtTime(5000, t + 0.22);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); chain(n, bp, g, out);
+    const o = osc('sine', t + 0.2, 0.15, 900, 200), og = gain(); env(og.gain, t + 0.2, 0.003, 0.3, 0.15); chain(o, og, out);
+  },
+  // Cyclone: rising, swirling wind
+  cyclone(out, t) {
+    const n = noise(t, 2.2), bp = filt('bandpass', 500, 4), g = gain(), lfo = osc('sine', t, 2.2, 7), lg = gain(300);
+    bp.frequency.setValueAtTime(300, t); bp.frequency.linearRampToValueAtTime(1100, t + 1.2); chain(lfo, lg); lg.connect(bp.frequency);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.6, t + 0.25); g.gain.linearRampToValueAtTime(0.4, t + 1.8); g.gain.linearRampToValueAtTime(0, t + 2.2); chain(n, bp, g, out);
+  },
+  // Avatar Totem: a deep gong with a golden shimmer
+  avatar(out, t) {
+    for (const [f, a] of [[98, 0.5], [196, 0.3], [294, 0.15], [523, 0.08]]) { const o = osc('sine', t, 2.4, f), g = gain(); env(g.gain, t, 0.01, a, 2.4); chain(o, g, out); }
+    for (let i = 0; i < 6; i++) { const o = osc('triangle', t + 0.05 * i, 0.6, 1800 + i * 240), g = gain(); env(g.gain, t + 0.05 * i, 0.005, 0.03, 0.6); chain(o, g, out); }
+  },
+  // Veil Blade: a breathy fade into nothing
+  veil(out, t) {
+    const n = noise(t, 0.9), hp = filt('highpass', 2500, 0.7), g = gain(); env(g.gain, t, 0.05, 0.25, 0.9); chain(n, hp, g, out);
+    const o = osc('sine', t, 0.9, 700, 180), og = gain(); env(og.gain, t, 0.02, 0.12, 0.9); chain(o, og, out);
+  },
+  salve(out, t) { for (const [dt, f] of [[0, 523], [0.12, 659], [0.24, 784]]) { const o = osc('sine', t + dt, 0.5, f), g = gain(); env(g.gain, t + dt, 0.01, 0.12, 0.5); chain(o, g, out); } },
+  ward(out, t) { const o = osc('sine', t, 0.6, 330, 660), g = gain(); env(g.gain, t, 0.01, 0.2, 0.6); chain(o, g, out); const n = noise(t, 0.08), ng = gain(); env(ng.gain, t, 0.002, 0.3, 0.08); chain(n, filt('lowpass', 600), ng, out); },
+  wand(out, t) { for (let i = 0; i < 5; i++) { const o = osc('sine', t + i * 0.04, 0.4, 600 + i * 150, 1200 + i * 200), g = gain(); env(g.gain, t + i * 0.04, 0.005, 0.07, 0.4); chain(o, g, out); } },
 };
-const WET = { rune: 0.6, cast: 0.25, raze: 0.55, hit: 0.3, death: 0.6, soul: 0.35, kill: 0.6, respawn: 0.6, heartbeat: 0.05, stinger: 0.7 };
+const WET = { coin: 0.15, buy: 0.2, shopOpen: 0.1, error: 0, blink: 0.4, cyclone: 0.5, avatar: 0.7, veil: 0.6, salve: 0.4, ward: 0.3, wand: 0.5, rune: 0.6, cast: 0.25, raze: 0.55, hit: 0.3, death: 0.6, soul: 0.35, kill: 0.6, respawn: 0.6, heartbeat: 0.05, stinger: 0.7 };
 
 function play(kind, opts = {}) {
   if (!ctx || document.hidden) return;

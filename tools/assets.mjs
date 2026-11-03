@@ -253,6 +253,14 @@ for (const [key, file] of Object.entries(PROPS)) {
   props[key] = emit(key, m, full(m));
   if (key === 'tree') props.treeFar = emit('treeFar', simplify(m, 700), { images: [jpeg(m.color, 256, 75)], material: pbr(0) });
 }
+// optional new props from Meshy (see MESHY-PROMPTS.md): models/raw/<name>.glb, simplified to about 5,000 triangles
+const RAW = path.join(MODELS, 'raw');
+for (const [key, file] of Object.entries({ shop: 'shop' })) {
+  const src = path.join(RAW, file + '.glb'); if (!fs.existsSync(src)) continue;
+  let m = loadMesh(src); const tris = m.idx.length / 3;
+  const color = m.color, mr = m.mr; if (tris > 6000) m = { ...simplify(m, 5000), color, mr };
+  props[key] = emit(key, m, full({ ...m, color, mr }));
+}
 fs.writeFileSync(path.join(GAME, 'props-data.js'), 'window.SFA_PROPS=' + JSON.stringify(props) + ';\n');
 
 // announcer: source WAVs in audio/announcer -> 48 kbps AAC (.m4a), which every current browser decodes
