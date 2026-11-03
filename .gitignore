@@ -1,0 +1,6 @@
+# huge source sculpts (50-70 MB each) stay on disk, out of git
+models/shadow-fiend.glb
+models/shadow-fiend-untextured.glb
+models/props/*.glb
+.DS_Store
+.claude/

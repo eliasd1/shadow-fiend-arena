@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shadow Fiend Arena</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="hud" class="hidden">
+  <div id="killfeed"></div>
+  <div id="scoreboard"></div>
+  <div id="announce"></div>
+  <div id="sub-announce"></div>
+  <canvas id="minimap" width="180" height="180"></canvas>
+  <div id="bar">
+    <div id="buffs"></div>
+    <div id="souls"><span id="soulCount">0</span><small>souls</small></div>
+    <div class="slot" data-slot="0"><div class="cd"></div><b>Z</b><i>Near</i><span class="t"></span></div>
+    <div class="slot" data-slot="1"><div class="cd"></div><b>X</b><i>Mid</i><span class="t"></span></div>
+    <div class="slot" data-slot="2"><div class="cd"></div><b>C</b><i>Far</i><span class="t"></span></div>
+    <div id="hpWrap"><div id="hpFill"></div><span id="hpText"></span></div>
+  </div>
+  <div id="respawn"></div>
+  <div id="help">Right-click: move &nbsp;·&nbsp; Z / X / C: near / mid / far raze (fires the way you face) &nbsp;·&nbsp; S: stop &nbsp;·&nbsp; M: mute &nbsp;·&nbsp; Wheel: zoom &nbsp;·&nbsp; Esc: menu &nbsp;·&nbsp; Grab runes for Haste, Double Damage or Regeneration</div>
+</div>
+<div id="labels"></div>
+
+<div id="menu" class="overlay">
+  <div class="panel">
+    <h1>SHADOW FIEND <span>ARENA</span></h1>
+    <p class="tag">Raze. Predict. Harvest their souls.</p>
+    <div class="row"><label>Map</label><select id="optMap"><option value="molten" selected>Scourge Pit (lava)</option><option value="river">Ancient River (night forest)</option><option value="frozen">Frozen Throne (ice)</option></select></div>
+    <div class="row"><label>Fog of war</label><select id="optFog"><option value="on" selected>On</option><option value="off">Off</option></select></div>
+    <div class="row"><label>Bots</label><select id="optBots"><option>1</option><option>2</option><option>3</option><option selected>5</option><option>7</option></select></div>
+    <div class="row"><label>Difficulty</label><select id="optDiff"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select></div>
+    <div class="row"><label>Kills to win</label><select id="optKills"><option>10</option><option selected>20</option><option>30</option></select></div>
+    <div class="row"><label>Movement</label><select id="optMove"><option value="mouse" selected>Right-click (classic)</option><option value="wasd">WASD</option></select></div>
+    <div class="row"><label>Sound volume</label><input id="optVol" type="range" min="0" max="100" value="70"></div>
+    <div class="row"><label>Graphics</label><select id="optGfx"><option value="high" selected>High</option><option value="low">Performance</option></select></div>
+    <button id="play">PLAY</button>
+    <p class="keys">Razes fire in the direction your hero faces, just like the original.<br>Every hit gives a soul; souls make your razes hit harder. Dying costs half of them.</p>
+    <p id="loadState"></p>
+    <p class="credits">Announcer voice: "Announcer kill sounds" by TripleSnail, recorded by Antti Saari — CC-BY 3.0 (opengameart.org)</p>
+  </div>
+</div>
+<div id="end" class="overlay hidden"><div class="panel"><h1 id="endTitle"></h1><div id="endTable"></div><button id="again">PLAY AGAIN</button></div></div>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/GLTFLoader.js"></script>
+<script src="hero-data.js"></script>
+<script src="props-data.js"></script>
+<script src="announcer-data.js"></script>
+<script src="audio.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

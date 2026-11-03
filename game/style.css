@@ -1,0 +1,56 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #050203; font-family: "Trebuchet MS", "Segoe UI", sans-serif; color: #f3e6dc; user-select: none; }
+canvas { display: block; }
+.hidden { display: none !important; }
+
+.overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(30,4,2,.55), rgba(0,0,0,.85)); z-index: 20; }
+.panel { width: 440px; padding: 28px 34px; background: linear-gradient(#1c0b09ee, #0b0505ee); border: 1px solid #6b1d12; box-shadow: 0 0 40px #ff2a0040, inset 0 0 30px #000; border-radius: 6px; text-align: center; }
+h1 { margin: 0 0 4px; font-size: 32px; letter-spacing: 3px; color: #ff4a2a; text-shadow: 0 0 18px #ff2a00a0; }
+h1 span { color: #f3e6dc; }
+.tag { margin: 0 0 18px; color: #b9998c; font-style: italic; }
+.row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
+.row label { color: #d9b9a8; }
+select { width: 190px; background: #120707; color: #f3e6dc; border: 1px solid #5a1a10; padding: 5px; border-radius: 3px; }
+button { margin-top: 18px; width: 100%; padding: 12px; font-size: 20px; letter-spacing: 4px; font-weight: bold; color: #fff; background: linear-gradient(#b8240f, #6a1006); border: 1px solid #ff6a3a; border-radius: 4px; cursor: pointer; box-shadow: 0 0 18px #ff2a0060; }
+button:hover { filter: brightness(1.2); }
+.keys { font-size: 12px; color: #a08478; margin-top: 14px; line-height: 1.5; }
+#loadState { font-size: 12px; color: #ff8a5a; min-height: 14px; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+#killfeed { position: absolute; top: 12px; left: 12px; width: 380px; font-size: 14px; }
+#killfeed div { background: #000a; padding: 4px 8px; margin-bottom: 4px; border-left: 3px solid #ff3b2f; border-radius: 2px; animation: fadein .2s; }
+#scoreboard { position: absolute; top: 12px; right: 12px; min-width: 210px; background: #000a; border: 1px solid #4a140c; border-radius: 4px; padding: 6px 10px; font-size: 13px; }
+#scoreboard .r { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+#scoreboard .me { font-weight: bold; }
+#scoreboard .h { color: #a08478; font-size: 11px; border-bottom: 1px solid #4a140c; margin-bottom: 3px; }
+#announce { position: absolute; top: 18%; width: 100%; text-align: center; font-size: 46px; font-weight: bold; letter-spacing: 2px; color: #ff5a2a; text-shadow: 0 0 20px #ff2000, 0 3px 0 #000; opacity: 0; transition: opacity .25s; }
+#sub-announce { position: absolute; top: calc(18% + 58px); width: 100%; text-align: center; font-size: 18px; color: #f3e6dc; text-shadow: 0 2px 4px #000; opacity: 0; transition: opacity .25s; }
+#minimap { position: absolute; left: 12px; bottom: 12px; background: #000b; border: 1px solid #4a140c; border-radius: 50%; }
+#bar { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: flex-end; gap: 10px; }
+.slot { position: relative; width: 66px; height: 66px; border: 2px solid #8a2a14; border-radius: 6px; overflow: hidden; background: radial-gradient(circle at 50% 70%, #ff5a1a, #5a0c04 60%, #160404); box-shadow: 0 0 12px #ff2a0050; }
+.slot b { position: absolute; top: 3px; left: 6px; font-size: 16px; text-shadow: 0 1px 2px #000; z-index: 2; }
+.slot i { position: absolute; bottom: 3px; width: 100%; text-align: center; font-size: 11px; font-style: normal; color: #ffd8c0; text-shadow: 0 1px 2px #000; z-index: 2; }
+.slot .cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: #000c; z-index: 1; }
+.slot .t { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; z-index: 3; text-shadow: 0 0 4px #000; }
+#souls { width: 72px; height: 66px; border: 2px solid #5a1a10; border-radius: 6px; background: #0a0303d0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+#souls span { font-size: 28px; font-weight: bold; color: #ff6a3a; text-shadow: 0 0 10px #ff2a00; }
+#souls small { font-size: 11px; color: #b9998c; }
+#hpWrap { position: relative; width: 220px; height: 22px; background: #1a0605; border: 2px solid #5a1a10; border-radius: 4px; overflow: hidden; align-self: center; }
+#hpFill { height: 100%; width: 100%; background: linear-gradient(#4adf4a, #1d8a1d); transition: width .1s; }
+#hpText { position: absolute; inset: 0; text-align: center; font-size: 13px; line-height: 18px; text-shadow: 0 1px 2px #000; }
+#respawn { position: absolute; top: 45%; width: 100%; text-align: center; font-size: 28px; color: #ff8a6a; text-shadow: 0 2px 6px #000; }
+#help { position: absolute; bottom: 92px; width: 100%; text-align: center; font-size: 12px; color: #a08478cc; text-shadow: 0 1px 2px #000; }
+
+#labels { position: fixed; inset: 0; pointer-events: none; z-index: 4; }
+.ulabel { position: absolute; transform: translate(-50%, -100%); text-align: center; font-size: 12px; text-shadow: 0 1px 2px #000, 0 0 3px #000; white-space: nowrap; }
+.ulabel .hb { width: 64px; height: 6px; margin: 2px auto 0; background: #000c; border: 1px solid #000; }
+.ulabel .hb div { height: 100%; background: #4adf4a; }
+.dmg { position: absolute; transform: translate(-50%, -50%); font-weight: bold; font-size: 18px; color: #ffb04a; text-shadow: 0 0 6px #ff2000, 0 2px 0 #000; }
+#endTable .r { display: flex; justify-content: space-between; padding: 4px 6px; border-bottom: 1px solid #3a100a; }
+@keyframes fadein { from { opacity: 0; transform: translateX(-10px); } }
+
+input[type=range] { width: 190px; accent-color: #d8340a; }
+#buffs { position: absolute; bottom: 76px; left: 0; display: flex; gap: 6px; white-space: nowrap; }
+#buffs span { font-size: 12px; font-weight: bold; padding: 3px 7px; background: #000c; border: 1px solid; border-radius: 3px; }
+#bar { position: absolute; }
+.credits { font-size: 10px; color: #6a5048; margin: 8px 0 0; }
