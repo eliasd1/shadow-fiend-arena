@@ -56,12 +56,23 @@
     <div class="row"><label>Camera shake</label><select id="optShake"><option value="on" selected>Subtle</option><option value="off">Off</option></select></div>
     <div class="row"><label>Graphics</label><select id="optGfx"><option value="high" selected>High</option><option value="low">Performance</option></select></div>
     <button id="play">PLAY</button>
+    <div id="online">
+      <div class="row"><label>Your name</label><input id="optName" maxlength="14" placeholder="Shadow Fiend" autocomplete="off"></div>
+      <div class="netbtns"><button id="hostBtn" class="small">HOST ONLINE</button><button id="joinBtn" class="small">JOIN A FRIEND</button></div>
+      <div id="joinBox" class="hidden"><input id="joinCode" placeholder="Invite code" maxlength="12" autocomplete="off"><button id="joinGo" class="small">JOIN</button></div>
+      <div id="lobby" class="hidden">
+        <div id="inviteBox" class="hidden">Invite code <b id="inviteCode"></b><button id="copyLink" class="small">Copy invite link</button></div>
+        <div id="lobbyList"></div>
+        <p id="netState"></p>
+        <button id="leaveBtn" class="small ghost">Leave online</button>
+      </div>
+    </div>
     <p class="keys">Razes fire in the direction your hero faces, just like the original.<br>Every hit gives a soul; souls make your razes hit harder. Dying costs half of them.<br>Earn gold, press <b>B</b> to shop, use items with <b>1–6</b>.</p>
     <p id="loadState"></p>
-    <p class="credits">Announcer voice: "Announcer kill sounds" by TripleSnail, recorded by Antti Saari — CC-BY 3.0 (opengameart.org)</p>
+    <p class="credits">Announcer voice: "Announcer kill sounds" by TripleSnail, recorded by Antti Saari — CC-BY 3.0 (opengameart.org)<br>Online play: PeerJS by Michelle Bu, Eric Zhang and contributors — MIT License (peerjs.com)</p>
   </div>
 </div>
-<div id="end" class="overlay hidden"><div class="panel end-panel"><h1 id="endTitle"></h1><p id="endSub"></p><div id="endTable"></div><button id="again">PLAY AGAIN</button></div></div>
+<div id="end" class="overlay hidden"><div class="panel end-panel"><h1 id="endTitle"></h1><p id="endSub"></p><div id="endTable"></div><button id="again">PLAY AGAIN</button><p id="endWait" class="hidden">Waiting for the host to start the next match…</p></div></div>
 
 <script src="lib/three.min.js"></script>
 <script src="lib/GLTFLoader.js"></script>
@@ -71,6 +82,7 @@
 <script src="art-data.js"></script>
 <script src="items.js"></script>
 <script src="audio.js"></script>
+<script src="lib/peerjs.min.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

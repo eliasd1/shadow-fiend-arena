@@ -1380,7 +1380,7 @@ class Unit {
     if (this.souls < CFG.ultMinSouls) return 'Requiem needs at least ' + CFG.ultMinSouls + ' souls';
     this.ult = { t: CFG.ultCast }; this.moveTarget = null; this.faceAngle = null; this.stats.ults = (this.stats.ults || 0) + 1;
     if (this.invis > 0) this.invis = 0;
-    sfx('requiemCharge', this.isPlayer ? 1 : earVol(this.pos) * 0.8, this.pos);
+    fxUltCharge(this); netEv('ultc', this.id);
     return true;
   }
   castRaze(slot) {
@@ -1393,9 +1393,7 @@ class Unit {
       const w = o.items.find(it => it && it.id === 'wand');
       if (w && w.charges < ITEMS.wand.maxCharges && Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) < ITEMS.wand.chargeRange && canSee(o, this.pos.x, this.pos.z)) w.charges++;
     }
-    const c = this.razeCenter(slot);
-    this.tele.position.set(c.x, H(c.x, c.y) + 0.08, c.y); this.tele.visible = true;
-    sfx('cast', this.isPlayer ? 0.9 : earVol(this.pos) * 0.6, this.pos);
+    fxCast(this, slot, this.facing); netEv('cast', this.id, slot, +this.facing.toFixed(3));
     return true;
   }
   step(dt, input) {
@@ -1653,11 +1651,41 @@ const funnelMat = new THREE.ShaderMaterial({
 });
 function earVol(p) { if (!player) return 0.5; const d = p.distanceTo(player.pos); return Math.max(0, 1 - d / 26); }
 
+// ---- effects: what a game event looks and sounds like, from this screen's point of view.
+// The host calls these as things happen and sends the same event to every guest, who replays it.
+function fxCast(u, slot, facing) {
+  const c = u.razeCenter(slot, facing);
+  u.tele.position.set(c.x, H(c.x, c.y) + 0.08, c.y); u.tele.visible = true;
+  sfx('cast', u.isPlayer ? 0.9 : earVol(u.pos) * 0.6, u.pos);
+}
+function fxUltCharge(u) { sfx('requiemCharge', u.isPlayer ? 1 : earVol(u.pos) * 0.8, u.pos); }
+function fxRaze(u, x, z, power, dd, hit) {
+  razeFx(x, z, power, dd);
+  sfx('raze', u.isPlayer ? 1 : earVol(new THREE.Vector3(x, 0, z)), { x });
+  if (player && (u === player || Math.hypot(x - player.pos.x, z - player.pos.z) < CFG.razeR + 1)) addShake(0.12);
+  if (u === player && hit) screenFlash('#ff7a20', 0.14);
+}
+function fxHit(o, amt, src) {
+  o.flash = 1; o.flinch = 1;
+  if (o === player) { screenFlash('#c00000', Math.min(0.75, 0.3 + amt / o.maxHp)); addShake(0.12); }
+  sfx('hit', o.isPlayer || src.isPlayer ? 0.9 : earVol(o.pos) * 0.7, o.pos);
+  if (o.seen !== false || src === player) floatText(o.pos, Math.round(amt), src === player ? '#ffd04a' : o === player ? '#ff5a5a' : '#ffb04a', amt >= 300 ? 'big' : '');
+  for (let i = 0; i < 16; i++) particles.spawn(o.pos.x, 1.2, o.pos.z, rnd(-3, 3), rnd(1, 4), rnd(-3, 3), 0.5, 0.5, 0.1, [1, 0.3, 0.2], [0.3, 0, 0], -6, 2);
+}
+function fxDeath(o, src, orbs) {
+  for (let i = 0; i < 70; i++) { const a = rnd(0, 7), s = rnd(1, 6); particles.spawn(o.pos.x, rnd(0.4, 2), o.pos.z, Math.cos(a) * s, rnd(1, 7), Math.sin(a) * s, rnd(0.6, 1.2), rnd(0.6, 1.2), 0.1, [1, 0.4, 0.15], [0.2, 0, 0.05], -3, 1.5); }
+  for (let i = 0; i < 14; i++) smoke.spawn(o.pos.x + rnd(-0.5, 0.5), rnd(0.5, 1.5), o.pos.z + rnd(-0.5, 0.5), rnd(-0.5, 0.5), rnd(1, 2), rnd(-0.5, 0.5), 1.6, 1.4, 3, SMOKE0, SMOKE1, 0, 0.5);
+  sfx('death', o.isPlayer ? 1 : earVol(o.pos), o.pos);
+  o.tele.visible = false;
+  if (src && src !== o) { soulOrbs(o.pos, src, orbs); if (src.isPlayer) { sfx('kill', 0.9); screenFlash('#ffd0a0', 0.35); } }
+}
+function fxSpawn(u) {
+  if (u.isPlayer && state === 'play') sfx('respawn', 0.8);
+  for (let i = 0; i < 40; i++) { const a = rnd(0, 7); particles.spawn(u.pos.x + Math.cos(a) * 1.2, 0.1, u.pos.z + Math.sin(a) * 1.2, -Math.cos(a), rnd(2, 5), -Math.sin(a), 0.7, 0.8, 0.1, [1, 0.5, 0.2], [0.4, 0, 0], 0, 1); }
+}
+function fxGold(u, g, at) { if (u === player) { floatText(at || u.pos, '+' + g, '#ffd75a'); sfx('coin', 0.5); } }
 function resolveRaze(u, slot) {
   const c = u.razeCenter(slot), dd = u.buffs.dd > 0;
-  razeFx(c.x, c.y, u.souls / CFG.maxSouls, dd);
-  sfx('raze', u.isPlayer ? 1 : earVol(new THREE.Vector3(c.x, 0, c.y)), { x: c.x });
-  if (player && (u === player || Math.hypot(c.x - player.pos.x, c.y - player.pos.z) < CFG.razeR + 1)) addShake(0.12);
   const dmg = (CFG.baseDmg + u.souls * CFG.soulDmg) * (dd ? 2 : 1) + (u.veilBonus ? ITEMS.blade.bonus : 0);
   const hitsBefore = u.stats.hits;
   u.veilBonus = false;
@@ -1673,12 +1701,14 @@ function resolveRaze(u, slot) {
     }
     damage(o, dmg + extra, u);
   }
-  if (u.stats.hits > hitsBefore) u.stats.razesHit = (u.stats.razesHit || 0) + 1;
-  if (u === player && u.stats.hits > hitsBefore) screenFlash('#ff7a20', 0.14);
+  const hit = u.stats.hits > hitsBefore;
+  if (hit) u.stats.razesHit = (u.stats.razesHit || 0) + 1;
+  const power = +(u.souls / CFG.maxSouls).toFixed(2);
+  fxRaze(u, c.x, c.y, power, dd, hit); netEv('raze', u.id, +c.x.toFixed(2), +c.y.toFixed(2), power, dd ? 1 : 0, hit ? 1 : 0);
 }
 const requiemLines = [];
-function releaseRequiem(u) {
-  const n = Math.max(1, Math.floor(u.souls / 2)), off = rnd(0, 6.28);
+function releaseRequiem(u, n = Math.max(1, Math.floor(u.souls / 2)), off = rnd(0, 6.28)) {
+  if (NET.role !== 'client') netEv('req', u.id, n, +off.toFixed(3));
   for (let i = 0; i < n; i++) { const a = off + i / n * Math.PI * 2; requiemLines.push({ u, x: u.pos.x, z: u.pos.z, dx: Math.sin(a), dz: Math.cos(a), d: 0, hit: new Set() }); }
   sfx('requiem', u.isPlayer ? 1 : earVol(u.pos), u.pos);
   addFx(crackPool[crackI++ % crackPool.length], 2.2, 'crack', u.pos.x, u.pos.z, 2.4, 3.2, 1, 0xff3a20);
@@ -1693,6 +1723,7 @@ function updateRequiem(st) {
     const L = requiemLines[i], d0 = L.d; L.d = Math.min(CFG.ultRange, L.d + CFG.ultSpeed * st);
     const ax = L.x + L.dx * d0, az = L.z + L.dz * d0, bx = L.x + L.dx * L.d, bz = L.z + L.dz * L.d;
     for (const o of units) {
+      if (NET.role === 'client') break; // guests only draw the streaks; the host deals the damage
       if (o === L.u || !o.alive || o.prot > 0 || L.hit.has(o) || !isEnemy(L.u, o)) continue;
       if (segDist(o.pos.x, o.pos.z, [ax, az], [bx, bz]) > CFG.unitR + CFG.ultWidth) continue;
       L.hit.add(o);
@@ -1708,14 +1739,11 @@ function updateRequiem(st) {
 // FFA: everyone else is an enemy; team mode: only the other team
 function isEnemy(a, b) { return a !== b && (a.team === undefined || a.team !== b.team); }
 function damage(o, amt, src) {
-  o.hp -= amt; o.flash = 1; o.flinch = 1; o.lastHitBy = src; o.lastHitT = gameTime;
-  if (o === player) { screenFlash('#c00000', Math.min(0.75, 0.3 + amt / o.maxHp)); addShake(0.12); }
+  o.hp -= amt; o.lastHitBy = src; o.lastHitT = gameTime;
   o.hitBy.set(src, gameTime); o.lockT = gameTime; o.salve = 0; // salve breaks, dagger locks
   src.stats.dmg += amt; src.stats.hits++;
   src.souls = Math.min(CFG.maxSouls, src.souls + 1);
-  sfx('hit', o.isPlayer || src.isPlayer ? 0.9 : earVol(o.pos) * 0.7, o.pos);
-  if (o.seen !== false || src === player) floatText(o.pos, Math.round(amt), src === player ? '#ffd04a' : o === player ? '#ff5a5a' : '#ffb04a', amt >= 300 ? 'big' : '');
-  for (let i = 0; i < 16; i++) particles.spawn(o.pos.x, 1.2, o.pos.z, rnd(-3, 3), rnd(1, 4), rnd(-3, 3), 0.5, 0.5, 0.1, [1, 0.3, 0.2], [0.3, 0, 0], -6, 2);
+  fxHit(o, amt, src); netEv('hit', o.id, Math.round(amt), src.id);
   if (o.hp <= 0) kill(o, src, false);
 }
 function kill(o, src, env) {
@@ -1730,25 +1758,22 @@ function kill(o, src, env) {
   }
   o.hitBy.clear();
   const lost = Math.floor(o.souls / 2); o.souls -= lost; const prevStreak = o.streak; o.streak = 0;
-  for (let i = 0; i < 70; i++) { const a = rnd(0, 7), s = rnd(1, 6); particles.spawn(o.pos.x, rnd(0.4, 2), o.pos.z, Math.cos(a) * s, rnd(1, 7), Math.sin(a) * s, rnd(0.6, 1.2), rnd(0.6, 1.2), 0.1, [1, 0.4, 0.15], [0.2, 0, 0.05], -3, 1.5); }
-  for (let i = 0; i < 14; i++) smoke.spawn(o.pos.x + rnd(-0.5, 0.5), rnd(0.5, 1.5), o.pos.z + rnd(-0.5, 0.5), rnd(-0.5, 0.5), rnd(1, 2), rnd(-0.5, 0.5), 1.6, 1.4, 3, SMOKE0, SMOKE1, 0, 0.5);
-  sfx('death', o.isPlayer ? 1 : earVol(o.pos), o.pos);
+  const orbN = 6 + Math.min(lost, 10), by = src && src !== o ? src : null;
+  fxDeath(o, by, orbN); netEv('die', o.id, by ? by.id : -1, orbN);
   const how = MAP.edge === 'abyss' ? 'into the abyss' : MAP.theme === 'grave' ? 'into a cursed grave' : 'into the lava';
   let msg;
   if (src && src !== o) {
     src.kills++; src.streak++; src.souls = Math.min(CFG.maxSouls, src.souls + 4);
-    soulOrbs(o.pos, src, 6 + Math.min(lost, 10));
-    if (src.isPlayer) { sfx('kill', 0.9); screenFlash('#ffd0a0', 0.35); }
     msg = `<b style="color:${src.color}">${src.name}</b> ${env ? 'drove' : 'razed'} <b style="color:${o.color}">${o.name}</b>${env ? ' ' + how : ''}`;
-    if (!firstBlood) { firstBlood = true; announce('FIRST BLOOD', `${src.name} has drawn first blood!`, 'firstblood'); }
+    if (!firstBlood) { firstBlood = true; shout('FIRST BLOOD', `${src.name} has drawn first blood!`, 'firstblood'); }
     else {
       src.multi = gameTime - src.multiT < 4 ? src.multi + 1 : 1; src.multiT = gameTime;
-      if (src.multi >= 2) { const m = MULTI[Math.min(src.multi, 5)]; announce(m[0], src.name, m[1]); }
-      else if (src.streak >= 3) { const s = STREAKS[Math.min(src.streak, 10)]; announce('', `${src.name} ${s[0]}`, s[1]); }
+      if (src.multi >= 2) { const m = MULTI[Math.min(src.multi, 5)]; shout(m[0], src.name, m[1]); }
+      else if (src.streak >= 3) { const s = STREAKS[Math.min(src.streak, 10)]; shout('', `${src.name} ${s[0]}`, s[1]); }
     }
-    if (prevStreak >= 3) killfeed(`<b style="color:${src.color}">${src.name}</b> ended ${o.name}'s spree`);
+    if (prevStreak >= 3) feed(`<b style="color:${src.color}">${src.name}</b> ended ${o.name}'s spree`);
   } else msg = `<b style="color:${o.color}">${o.name}</b> fell ${how}`;
-  killfeed(msg);
+  feed(msg);
   if (src && src.kills >= settings.kills && state === 'play') endGame(src, o);
 }
 function freeSpot(margin) {
@@ -1770,8 +1795,7 @@ function respawn(u) {
   }
   u.pos.copy(best); u.prev.copy(best); u.slide.set(0, 0); u.facing = Math.atan2(-best.x, -best.z);
   u.alive = true; u.hp = u.maxHp; u.prot = CFG.spawnProt; u.cd = [0, 0, 0];
-  if (u.isPlayer && state === 'play') sfx('respawn', 0.8);
-  for (let i = 0; i < 40; i++) { const a = rnd(0, 7); particles.spawn(u.pos.x + Math.cos(a) * 1.2, 0.1, u.pos.z + Math.sin(a) * 1.2, -Math.cos(a), rnd(2, 5), -Math.sin(a), 0.7, 0.8, 0.1, [1, 0.5, 0.2], [0.4, 0, 0], 0, 1); }
+  fxSpawn(u); netEv('spawn', u.id, +u.pos.x.toFixed(2), +u.pos.z.toFixed(2));
 }
 
 const orbs = [];
@@ -1801,7 +1825,11 @@ runeRing.rotation.x = -Math.PI / 2; runeRing.position.y = 0.08; runeRing.scale.s
 const runeLight = new THREE.PointLight(0xff0000, 0, 7, 2); runeLight.position.y = 1.2; scene.add(runeLight);
 function spawnRune() {
   const spot = MAP.runes[Math.random() * MAP.runes.length | 0], types = Object.keys(RUNES), type = types[Math.random() * types.length | 0];
-  rune = { x: spot[0], z: spot[1], type }; const R = RUNES[type];
+  showRune({ x: spot[0], z: spot[1], type }); feed(`<span style="color:${RUNES[type].css}">A ${RUNES[type].name} rune has appeared!</span>`);
+}
+function showRune(r) { // r: {x, z, type}, or null to hide
+  rune = r; if (!r) { runeMesh.visible = false; runeLight.intensity = 0; return; }
+  const type = r.type, R = RUNES[type];
   runeMesh.position.set(rune.x, H(rune.x, rune.z), rune.z); runeMesh.visible = true; runeLight.position.set(rune.x, H(rune.x, rune.z) + 1.2, rune.z); runeLight.intensity = 1.4;
   runeGem.material.emissive.set(R.color); runeRing.material.color.set(R.color); runeLight.color.set(R.color);
   const key = 'rune' + { haste: 'Haste', dd: 'Dd', regen: 'Regen' }[type];
@@ -1812,20 +1840,23 @@ function spawnRune() {
     for (const k in runeMesh.userData.stones) runeMesh.userData.stones[k].visible = k === key;
     runeGem.material.visible = false;
   }
-  killfeed(`<span style="color:${R.css}">A ${R.name} rune has appeared!</span>`);
 }
 function takeRune(u) {
   const R = RUNES[rune.type]; u.buffs[rune.type] = R.dur;
-  killfeed(`<b style="color:${u.color}">${u.name}</b> activated <span style="color:${R.css}">${R.name}</span>`);
+  feed(`<b style="color:${u.color}">${u.name}</b> activated <span style="color:${R.css}">${R.name}</span>`);
+  fxRune(u, rune); netEv('rune', u.id, rune.type, rune.x, rune.z);
+  showRune(null); runeT = CFG.runeEvery;
+}
+function fxRune(u, r) {
+  const R = RUNES[r.type], c = new THREE.Color(R.color);
   sfx('rune', u.isPlayer ? 0.9 : earVol(u.pos) * 0.7, u.pos);
-  for (let i = 0; i < 40; i++) { const a = rnd(0, 7); const c = new THREE.Color(R.color); particles.spawn(rune.x, 1, rune.z, Math.cos(a) * 3, rnd(1, 4), Math.sin(a) * 3, 0.6, 0.6, 0.1, [c.r, c.g, c.b], [0, 0, 0], -4, 2); }
-  rune = null; runeMesh.visible = false; runeLight.intensity = 0; runeT = CFG.runeEvery;
+  for (let i = 0; i < 40; i++) { const a = rnd(0, 7); particles.spawn(r.x, 1, r.z, Math.cos(a) * 3, rnd(1, 4), Math.sin(a) * 3, 0.6, 0.6, 0.1, [c.r, c.g, c.b], [0, 0, 0], -4, 2); }
 }
 
 // ------------------------------------------------------------------ gold and items (data in items.js)
 function payGold(u, g, at) {
   u.gold += g; u.stats.goldEarned += g;
-  if (u === player) { floatText(at || u.pos, '+' + g, '#ffd75a'); sfx('coin', 0.5); }
+  const p = at || u.pos; fxGold(u, g, p); netEv('gold', u.id, g, +p.x.toFixed(2), +p.z.toFixed(2));
 }
 const slotOf = (u, id) => u.items.findIndex(it => it && it.id === id);
 function recalcItems(u) {
@@ -1878,26 +1909,26 @@ function useItem(u, i, pt, tgt) {
   if (it.cd > 0) return D.name + ' is on cooldown';
   const at = pt || { x: u.pos.x + Math.sin(u.facing) * 4, z: u.pos.z + Math.cos(u.facing) * 4 };
   const toward = (range) => { const dx = at.x - u.pos.x, dz = at.z - u.pos.z, d = Math.hypot(dx, dz); const k = d > range ? range / d : 1; return [u.pos.x + dx * k, u.pos.z + dz * k]; };
+  let fx = {};
   switch (it.id) {
-    case 'salve': u.salve = D.dur; sfx('salve', u.isPlayer ? 0.7 : earVol(u.pos) * 0.5, u.pos); break;
+    case 'salve': u.salve = D.dur; break;
     case 'wand': {
       if (!it.charges) return 'Soul Wand has no charges';
-      const h = it.charges * D.perCharge; u.hp = Math.min(u.maxHp, u.hp + h); it.charges = 0;
-      if (u.seen !== false) floatText(u.pos, '+' + h, '#7aff8a');
-      for (let k = 0; k < 30; k++) { const a = rnd(0, 7); particles.spawn(u.pos.x + Math.cos(a) * 0.7, rnd(0.3, 2), u.pos.z + Math.sin(a) * 0.7, 0, rnd(1, 3), 0, 0.7, 0.4, 0.05, [0.75, 0.5, 1], [0.2, 0, 0.4], 0, 0.5); }
-      sfx('wand', u.isPlayer ? 0.7 : earVol(u.pos) * 0.5, u.pos); break;
+      const h = it.charges * D.perCharge; u.hp = Math.min(u.maxHp, u.hp + h); it.charges = 0; fx = { h };
+      break;
     }
     case 'ward': {
       const [x, z] = clampToArena(...toward(D.range), 0.5);
-      placeWard(u, x, z); if (--it.charges <= 0) u.items[i] = null;
-      sfx('ward', u.isPlayer ? 0.6 : 0, u.pos); break;
+      fx = { x: +x.toFixed(2), z: +z.toFixed(2) }; if (--it.charges <= 0) u.items[i] = null;
+      break;
     }
     case 'dagger': {
       if (gameTime - u.lockT < D.lock) return 'Shadowstep Dagger is disabled after taking damage';
       if (u.cast) return 'Can’t blink while razing';
       const [x, z] = clampToArena(...toward(D.range), 0.8);
-      blinkFx(u.pos.x, u.pos.z); u.pos.set(x, 0, z); u.prev.copy(u.pos); u.slide.set(0, 0); u.moveTarget = null; blinkFx(x, z);
-      sfx('blink', u.isPlayer ? 0.8 : earVol(u.pos) * 0.6, u.pos); break;
+      fx = { x0: +u.pos.x.toFixed(2), z0: +u.pos.z.toFixed(2), x: +x.toFixed(2), z: +z.toFixed(2) };
+      u.pos.set(x, 0, z); u.prev.copy(u.pos); u.slide.set(0, 0); u.moveTarget = null;
+      break;
     }
     case 'cyclone': {
       let t = tgt;
@@ -1906,23 +1937,38 @@ function useItem(u, i, pt, tgt) {
         t = t || u;
       }
       if (t !== u && Math.hypot(t.pos.x - u.pos.x, t.pos.z - u.pos.z) > D.range + 0.5) return 'Target is out of range';
-      t.cyclone = D.dur; t.cast = null; t.ult = null; t.post = 0; t.tele.visible = false; t.moveTarget = null; t.salve = 0;
-      sfx('cyclone', u.isPlayer || t.isPlayer ? 0.8 : earVol(t.pos) * 0.6, t.pos); break;
+      t.cyclone = D.dur; t.cast = null; t.ult = null; t.post = 0; t.tele.visible = false; t.moveTarget = null; t.salve = 0; fx = { t: t.id };
+      break;
     }
-    case 'blade':
-      u.invis = D.dur; u.veilBonus = false;
-      for (let k = 0; k < 40; k++) { const a = rnd(0, 7); smoke.spawn(u.pos.x + Math.cos(a) * 0.5, rnd(0.3, 2.2), u.pos.z + Math.sin(a) * 0.5, Math.cos(a) * 0.8, rnd(0.2, 1), Math.sin(a) * 0.8, 1.2, 1.2, 2.6, [0.18, 0.1, 0.26], [0.02, 0.02, 0.04], 0, 1); }
-      sfx('veil', u.isPlayer ? 0.7 : earVol(u.pos) * 0.5, u.pos); break;
-    case 'avatar':
-      u.immune = D.durs[Math.min(u.avatarUses++, D.durs.length - 1)];
-      sfx('avatar', u.isPlayer ? 0.8 : earVol(u.pos) * 0.6, u.pos); break;
+    case 'blade': u.invis = D.dur; u.veilBonus = false; break;
+    case 'avatar': u.immune = D.durs[Math.min(u.avatarUses++, D.durs.length - 1)]; break;
   }
+  fxItem(u, it.id, fx); netEv('item', u.id, it.id, fx);
   u.stats.used[it.id] = (u.stats.used[it.id] || 0) + 1;
   if (it.id !== 'blade' && u.invis > 0) u.invis = 0; // using an item reveals you
   it.cd = D.cd || 0;
   if (u.items[i] === it && STACKS[it.id] && it.id === 'salve' && --it.charges <= 0) u.items[i] = null;
   return true;
 }
+// what using an item looks and sounds like (fx: the item's details, e.g. where the dagger went)
+function fxItem(u, id, fx) {
+  const v = (a, b) => u.isPlayer ? a : earVol(u.pos) * b;
+  switch (id) {
+    case 'salve': sfx('salve', v(0.7, 0.5), u.pos); break;
+    case 'wand':
+      if (u.seen !== false) floatText(u.pos, '+' + fx.h, '#7aff8a');
+      for (let k = 0; k < 30; k++) { const a = rnd(0, 7); particles.spawn(u.pos.x + Math.cos(a) * 0.7, rnd(0.3, 2), u.pos.z + Math.sin(a) * 0.7, 0, rnd(1, 3), 0, 0.7, 0.4, 0.05, [0.75, 0.5, 1], [0.2, 0, 0.4], 0, 0.5); }
+      sfx('wand', v(0.7, 0.5), u.pos); break;
+    case 'ward': placeWard(u, fx.x, fx.z); sfx('ward', u.isPlayer ? 0.6 : 0, u.pos); break;
+    case 'dagger': blinkFx(fx.x0, fx.z0); blinkFx(fx.x, fx.z); sfx('blink', v(0.8, 0.6), { x: fx.x }); break;
+    case 'cyclone': { const t = unitById(fx.t) || u; sfx('cyclone', u.isPlayer || t.isPlayer ? 0.8 : earVol(t.pos) * 0.6, t.pos); break; }
+    case 'blade':
+      for (let k = 0; k < 40; k++) { const a = rnd(0, 7); smoke.spawn(u.pos.x + Math.cos(a) * 0.5, rnd(0.3, 2.2), u.pos.z + Math.sin(a) * 0.5, Math.cos(a) * 0.8, rnd(0.2, 1), Math.sin(a) * 0.8, 1.2, 1.2, 2.6, [0.18, 0.1, 0.26], [0.02, 0.02, 0.04], 0, 1); }
+      sfx('veil', v(0.7, 0.5), u.pos); break;
+    case 'avatar': sfx('avatar', v(0.8, 0.6), u.pos); break;
+  }
+}
+const unitById = id => units.find(u => u.id === id);
 function blinkFx(x, z) {
   for (let k = 0; k < 50; k++) { const a = rnd(0, 7), r = rnd(0, 0.8); particles.spawn(x + Math.cos(a) * r, rnd(0.2, 2.4), z + Math.sin(a) * r, Math.cos(a) * rnd(0.5, 2), rnd(-0.5, 1.5), Math.sin(a) * rnd(0.5, 2), rnd(0.3, 0.6), 0.6, 0.05, [0.5, 0.75, 1], [0.1, 0.1, 0.4], 0, 2); }
   addFx(ringPool[ringI++ % ringPool.length], 0.35, 'ring', x, z, 0.3, 1.6, 0.9, 0x6aa8ff);
@@ -2057,7 +2103,7 @@ class Bot {
     if (this.target && this.target.alive && canSeeUnit(u, this.target)) this.lastSeen = { x: this.target.pos.x, z: this.target.pos.z, t: gameTime };
     if (!this.target || !this.target.alive || !canSeeUnit(u, this.target) || Math.random() < 0.05) {
       let best = null, bd = 1e9;
-      for (const o of units) if (o !== u && o.alive && canSeeUnit(u, o)) { const d = o.pos.distanceTo(u.pos) + (o.isPlayer ? -1.5 : 0) + rnd(0, 3); if (d < bd) { bd = d; best = o; } }
+      for (const o of units) if (o !== u && o.alive && canSeeUnit(u, o)) { const d = o.pos.distanceTo(u.pos) + (o.human ? -1.5 : 0) + rnd(0, 3); if (d < bd) { bd = d; best = o; } }
       this.target = best;
     }
     const t = this.target;
@@ -2135,19 +2181,16 @@ renderer.domElement.addEventListener('mousedown', e => {
   if (state !== 'play' || !player) return;
   if (e.button === 2) {
     rightDown = true; const p = groundPoint(e); if (!p) return;
-    const shop = (MAP.shops || []).find(o => Math.hypot(o.x - p.x, o.z - p.z) < 2.6);
-    if (shop) { // walk up to the Soul Merchant; the shop opens on arrival
-      const dx = player.pos.x - shop.x, dz = player.pos.z - shop.z, d = Math.hypot(dx, dz) || 1;
-      player.moveTo(shop.x + dx / d * 2.8, shop.z + dz / d * 2.8); player.wantShop = shop; rightDown = false; return;
-    }
-    player.wantShop = null; player.moveTo(p.x, p.z); clickFx(p.x, p.z);
+    const si = (MAP.shops || []).findIndex(o => Math.hypot(o.x - p.x, o.z - p.z) < 2.6);
+    if (si >= 0) { act({ t: 'move', shop: si }); player.wantShop = MAP.shops[si]; rightDown = false; return; } // the shop opens on arrival
+    player.wantShop = null; act({ t: 'move', x: +p.x.toFixed(2), z: +p.z.toFixed(2) }); clickFx(p.x, p.z);
   }
 });
 addEventListener('mouseup', e => { if (e.button === 2) rightDown = false; });
 let cursor = null; // ground point under the mouse, for quick-cast items
 renderer.domElement.addEventListener('mousemove', e => {
   cursor = groundPoint(e);
-  if (rightDown && state === 'play' && player && performance.now() - (player.lastDragPath || 0) > 120) { const p = groundPoint(e); if (p) { player.moveTo(p.x, p.z); player.lastDragPath = performance.now(); } }
+  if (rightDown && state === 'play' && player && performance.now() - (player.lastDragPath || 0) > 120) { const p = groundPoint(e); if (p) { act({ t: 'move', x: +p.x.toFixed(2), z: +p.z.toFixed(2) }); player.lastDragPath = performance.now(); } }
 });
 // zoom: proportional to the scroll amount so a trackpad's tiny momentum events barely move it; never while over UI
 let wheelLast = 0;
@@ -2159,19 +2202,25 @@ addEventListener('wheel', e => {
 }, { passive: true });
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase(); keys[k] = true;
-  if (state !== 'play' || !player || e.repeat) return;
+  if (state !== 'play' || !player || e.repeat || !$('menu').classList.contains('hidden')) return;
+  if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
   const slot = { z: 0, x: 1, c: 2 }[k];
-  if (slot !== undefined) player.castRaze(slot);
+  if (slot !== undefined) act({ t: 'raze', s: slot });
   if (k >= '1' && k <= '6') playerUseItem(+k - 1);
   if (k === 'b') toggleShop();
-  if (k === 'r') { const r = player.castUlt(); if (r !== true) showErr(r); }
-  if (k === 's' && settings.move === 'mouse') { player.moveTarget = null; player.path = null; }
+  if (k === 'r') act({ t: 'ult' });
+  if (k === 's' && settings.move === 'mouse') act({ t: 'stop' });
   if (k === 'm') { AUD.muted = !AUD.muted; announce('', AUD.muted ? 'Sound muted (M)' : 'Sound on (M)'); }
   if (k === 'escape') { if (shopOpen) toggleShop(false); else pauseToMenu(); }
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') pauseToMenu(); });
-function pauseToMenu() { toggleShop(false); state = 'menu'; $('menu').classList.remove('hidden'); $('play').textContent = 'RESUME'; AUD.stopAmbient(); }
+// offline the game pauses when the tab is hidden; online it can't (the match goes on for everyone), so it only goes quiet
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play' && !NET.role) pauseToMenu(); });
+function pauseToMenu() {
+  toggleShop(false); $('menu').classList.remove('hidden'); $('play').textContent = 'RESUME';
+  if (NET.role) return; // online: the menu is an overlay, the match keeps running
+  state = 'menu'; AUD.stopAmbient();
+}
 function wasd() {
   if (settings.move !== 'wasd') return null;
   return { x: (keys.d ? 1 : 0) - (keys.a ? 1 : 0), z: (keys.s ? 1 : 0) - (keys.w ? 1 : 0) };
@@ -2193,8 +2242,37 @@ let errT = 0;
 function showErr(msg) { $('err').textContent = msg; $('err').style.opacity = 1; errT = 1.6; sfx('error', 0.5); }
 function playerUseItem(i) {
   if (!player) return;
-  const r = useItem(player, i, cursor);
-  if (r !== true) showErr(r); else refreshInv();
+  act(cursor ? { t: 'item', i, x: +cursor.x.toFixed(2), z: +cursor.z.toFixed(2) } : { t: 'item', i });
+}
+// every action the local player takes goes through here: run at once offline or as host, sent to the host as a guest
+function act(c) {
+  if (NET.role === 'client') { NET.send(c); return; }
+  cmdResult(c, applyCmd(player, c));
+}
+function applyCmd(u, c) {
+  switch (c.t) {
+    case 'move': {
+      const shop = c.shop !== undefined && (MAP.shops || [])[c.shop];
+      if (shop) { const dx = u.pos.x - shop.x, dz = u.pos.z - shop.z, d = Math.hypot(dx, dz) || 1; u.moveTo(shop.x + dx / d * 2.8, shop.z + dz / d * 2.8); }
+      else if (isFinite(c.x) && isFinite(c.z)) u.moveTo(c.x, c.z);
+      return true;
+    }
+    case 'stop': u.moveTarget = null; u.path = null; return true;
+    case 'raze': if (c.s >= 0 && c.s <= 2) u.castRaze(c.s); return true;
+    case 'ult': return u.castUlt();
+    case 'item': return c.i >= 0 && c.i < 6 ? useItem(u, c.i, isFinite(c.x) ? { x: c.x, z: c.z } : null) : 'Empty slot';
+    case 'buy': return ITEMS[c.id] && SHOP.includes(c.id) ? buyItem(u, c.id) : 'Unknown item';
+    case 'sell': return c.i >= 0 && c.i < 6 && sellItem(u, c.i) ? true : 'Walk up to a Soul Merchant to sell';
+    case 'wasd': u.netInput = { x: Math.sign(c.x) || 0, z: Math.sign(c.z) || 0 }; return true;
+  }
+  return true;
+}
+// feedback on the local player's own action (for a guest it arrives back from the host)
+function cmdResult(c, r) {
+  if (r !== true) { if (typeof r === 'string' && c.t !== 'raze') showErr(r); return; }
+  if (c.t === 'buy') { sfx('buy', 0.7); const el = shopEls[c.id]; if (el) { el.querySelector('img').animate([{ transform: 'scale(1.15)' }, { transform: 'scale(1)' }], 180); $('shopTip').innerHTML = itemTipHTML(c.id, player); } }
+  if (c.t === 'sell') sfx('coin', 0.5);
+  refreshInv();
 }
 function itemTipHTML(id, u) {
   const D = ITEMS[id], price = u ? priceFor(u, id) : D.cost;
@@ -2207,7 +2285,7 @@ const invEls = [];
 for (let i = 0; i < 6; i++) {
   const el = document.createElement('div'); el.className = 'islot empty';
   el.innerHTML = `<img alt=""><div class="cd"></div><span class="k">${i + 1}</span><span class="n"></span><span class="t"></span>`;
-  el.addEventListener('mousedown', e => { e.stopPropagation(); if (!player) return; if (e.button === 0) playerUseItem(i); if (e.button === 2 && player.items[i]) { if (sellItem(player, i)) { sfx('coin', 0.5); refreshInv(); } else showErr('Walk up to a Soul Merchant to sell'); } });
+  el.addEventListener('mousedown', e => { e.stopPropagation(); if (!player) return; if (e.button === 0) playerUseItem(i); if (e.button === 2 && player.items[i]) act({ t: 'sell', i }); });
   el.addEventListener('contextmenu', e => e.preventDefault());
   el.addEventListener('mouseenter', () => { const it = player && player.items[i]; if (!it) return; const r = el.getBoundingClientRect(), T = $('itemTip'); T.innerHTML = itemTipHTML(it.id) + '<div class="classic">Right-click to sell for half</div>'; T.style.left = Math.min(innerWidth - 270, r.left - 100) + 'px'; T.style.bottom = (innerHeight - r.top + 8) + 'px'; T.classList.remove('hidden'); });
   el.addEventListener('mouseleave', () => $('itemTip').classList.add('hidden'));
@@ -2244,9 +2322,7 @@ for (const id of SHOP) {
   el.addEventListener('mouseenter', () => { $('shopTip').innerHTML = itemTipHTML(id, player); });
   el.addEventListener('mousedown', e => {
     e.stopPropagation(); if (!player) return;
-    const r = buyItem(player, id);
-    if (r === true) { sfx('buy', 0.7); el.querySelector('img').animate([{ transform: 'scale(1.15)' }, { transform: 'scale(1)' }], 180); refreshInv(); $('shopTip').innerHTML = itemTipHTML(id, player); }
-    else showErr(r);
+    act({ t: 'buy', id });
   });
   el.addEventListener('contextmenu', e => e.preventDefault());
   $('shopGrid').appendChild(el); shopEls[id] = el;
@@ -2345,19 +2421,290 @@ function drawMinimap() {
   mm.restore();
 }
 
-// ------------------------------------------------------------------ game flow
-function startGame() {
+// ------------------------------------------------------------------ online play: invite friends
+// One player hosts and runs the real match; friends join with the invite code or link. PeerJS's free public
+// server only introduces the browsers to each other; the game itself then flows directly between them (WebRTC).
+// The host sends every guest a snapshot of all heroes 20 times a second, with the events since the last one
+// (razes, hits, deaths, items...). Guests draw other heroes slightly in the past, smoothly between snapshots,
+// and their own hero from the newest snapshot, and replay each event with the same effects the host sees.
+const NET = { role: null, peer: null, conns: [], host: null, code: '', evq: [], snaps: [], sendT: 0, hiddenT: 0, lastWasd: '' };
+const NET_PREFIX = 'sfa-arena-', NET_MAX = 8;
+function netEv(...a) { if (NET.role === 'host' && (state === 'play' || state === 'end')) NET.evq.push(a); }
+function feed(html) { killfeed(html); netEv('feed', html); }
+function shout(big, small, voice) { announce(big, small, voice); netEv('ann', big, small, voice || ''); }
+NET.send = m => { if (NET.host && NET.host.open) NET.host.send(m); };
+const cleanName = n => String(n || '').replace(/[<>&"'`]/g, '').trim().slice(0, 14) || 'Guest';
+// the killfeed arrives as HTML from the host: keep only the tags the game itself writes
+const safeHTML = h => String(h).replace(/<(?!\/?(b|span)( style="color:#[0-9a-fA-F]{3,8}")?>)[^>]*>/g, '');
+const myName = () => cleanName($('optName').value || 'Shadow Fiend');
+function netStatus(t) { $('netState').textContent = t; }
+function makeCode() { const A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let c = ''; for (let i = 0; i < 6; i++) c += A[Math.random() * A.length | 0]; return c; }
+function inviteLink() { return location.href.split('#')[0] + '#join=' + NET.code; }
+function newPeer(id) {
+  if (!window.Peer) { netStatus('Online play needs the PeerJS library.'); return null; }
+  return id ? new Peer(id, { debug: 1 }) : new Peer({ debug: 1 });
+}
+function netLeave() {
+  if (NET.peer) try { NET.peer.destroy(); } catch (e) {}
+  Object.assign(NET, { role: null, peer: null, conns: [], host: null, code: '', evq: [], snaps: [] });
+  for (const id of ['optMap', 'optBots', 'optDiff', 'optKills', 'optFog']) $(id).disabled = false;
+  $('play').disabled = false; $('play').textContent = units.length && state === 'menu' ? 'RESUME' : 'PLAY';
+  $('lobby').classList.add('hidden'); $('inviteBox').classList.add('hidden'); $('again').classList.remove('hidden'); $('endWait').classList.add('hidden');
+}
+function showLobby() { $('lobby').classList.remove('hidden'); lobbyUpdate(); }
+function lobbyUpdate(names) {
+  if (NET.role === 'host') names = [myName() + ' (host)', ...NET.conns.map(c => c.name)];
+  $('lobbyList').innerHTML = (names || []).map((n, i) => `<div><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>${cleanName(n)}</div>`).join('');
+  if (NET.role === 'host') for (const c of NET.conns) if (c.open) c.send({ e: 'lobby', names, map: MAPS[$('optMap').value].name });
+}
+
+// ---- host
+function hostOnline() {
+  if (NET.role === 'host') return;
+  netLeave(); NET.role = 'host'; NET.code = makeCode();
+  const peer = NET.peer = newPeer(NET_PREFIX + NET.code); if (!peer) { NET.role = null; return; }
+  netStatus('Opening the lobby…'); showLobby();
+  peer.on('open', () => {
+    $('inviteCode').textContent = NET.code; $('inviteBox').classList.remove('hidden');
+    netStatus('Send the invite link (or code) to your friends. Press PLAY when everyone is in.');
+  });
+  peer.on('connection', conn => {
+    conn.on('data', m => hostRecv(conn, m));
+    conn.on('close', () => hostDrop(conn)); conn.on('error', () => hostDrop(conn));
+  });
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id') { NET.role = null; hostOnline(); return; } // that code is taken: pick another
+    if (e.type !== 'peer-unavailable') netStatus('Online problem: ' + (e.type || e.message) + '. Check your internet connection.');
+  });
+  peer.on('disconnected', () => { if (NET.role === 'host' && !peer.destroyed) peer.reconnect(); }); // lost the lobby server only; players stay connected
+}
+function hostRecv(conn, m) {
+  if (!m || typeof m !== 'object') return;
+  if (m.e === 'hello') {
+    if (conn.ready) return;
+    if (NET.conns.length >= NET_MAX - 1) { conn.send({ e: 'full' }); setTimeout(() => conn.close(), 500); return; }
+    conn.name = cleanName(m.name); conn.ready = true; NET.conns.push(conn);
+    if (state === 'play' || state === 'end') { // joining a match already under way: take over a bot, or a fresh hero
+      if (seatGuest(conn)) { feed(`<b style="color:${conn.unit.color}">${conn.name}</b> joined the game`); sendStart(conn); netSend({ e: 'roster', roster: roster() }, conn); }
+      else conn.send({ e: 'full' });
+    }
+    lobbyUpdate(); return;
+  }
+  if (m.t && conn.unit && state === 'play') { // one of the guest's actions
+    const r = applyCmd(conn.unit, m);
+    if (m.t !== 'move' && m.t !== 'wasd' && m.t !== 'stop') conn.send({ e: 'res', c: m, r });
+  }
+}
+function hostDrop(conn) {
+  const i = NET.conns.indexOf(conn); if (i < 0) return;
+  NET.conns.splice(i, 1);
+  const u = conn.unit;
+  if (u && units.includes(u)) { // a bot takes over the hero so the match stays fair
+    u.netInput = null; u.human = false; u.remote = null; bots.push(new Bot(u, DIFF[settings.diff]));
+    feed(`<b style="color:${u.color}">${u.name}</b> left; a bot takes over`);
+  }
+  lobbyUpdate();
+}
+function seatGuest(conn) {
+  let u = null;
+  const bi = bots.length - 1;
+  if (bi >= 0 && units.length >= NET_MAX) { u = bots[bi].u; bots.splice(bi, 1); } // the arena is full: replace a bot
+  else if (units.length < NET_MAX) { u = new Unit(Math.max(...units.map(o => o.id)) + 1, conn.name, false); units.push(u); respawn(u); fowAll(u.root); }
+  if (!u) return false;
+  u.name = conn.name; u.label.querySelector('span').textContent = conn.name; u.human = true; u.remote = conn; conn.unit = u;
+  return true;
+}
+const roster = () => units.map(u => ({ id: u.id, name: u.name, human: !!u.human, x: +u.pos.x.toFixed(2), z: +u.pos.z.toFixed(2), alive: u.alive }));
+function netSend(m, except) { for (const c of NET.conns) if (c !== except && c.open && c.unit) c.send(m); }
+function sendStart(conn) {
+  conn.send({ e: 'start', you: conn.unit.id, roster: roster(), t: gameTime,
+    settings: { map: settings.map, kills: settings.kills, fog: settings.fog, bots: settings.bots, diff: settings.diff } });
+}
+const r2 = v => Math.round(v * 100) / 100;
+function unitState(u) {
+  return [u.id, r2(u.pos.x), r2(u.pos.z), r2(u.facing), Math.round(u.hp), u.maxHp, u.souls, u.alive ? 1 : 0,
+    u.cast ? u.cast.slot : -1, u.cast ? r2(u.cast.t) : 0, u.ult ? r2(u.ult.t) : 0, r2(u.prot),
+    r2(u.cd[0]), r2(u.cd[1]), r2(u.cd[2]), r2(u.ultCd), r2(u.buffs.haste), r2(u.buffs.dd), r2(u.buffs.regen),
+    r2(u.slowT), r2(u.cyclone), r2(u.immune), r2(u.invis), u.kills, u.deaths, u.streak, Math.floor(u.gold), r2(u.respawnT), r2(u.post),
+    u.items.map(it => it ? [it.id, r2(it.cd), it.charges === undefined ? null : it.charges] : 0)];
+}
+function netHostTick(rdt) {
+  NET.sendT -= rdt; if (NET.sendT > 0 || !NET.conns.length) return;
+  NET.sendT = 0.05;
+  const m = { e: 's', t: r2(gameTime), u: units.map(unitState), r: rune ? [rune.x, rune.z, rune.type] : 0, ev: NET.evq };
+  NET.evq = [];
+  netSend(m);
+}
+function netSendEnd(w, v) {
+  NET.evq.length && netHostTick(1); // flush the last events first
+  netSend({ e: 'end', w: w.id, v: v ? v.id : -1, stats: units.map(u => [u.id, u.kills, u.deaths, u.stats.assists, Math.round(u.stats.dmg), u.stats.casts, u.stats.razesHit || 0, Math.round(u.stats.goldEarned)]) });
+}
+// a hidden tab gets no animation frames: keep the host's match running (and sending) on a timer instead
+setInterval(() => {
+  if (NET.role !== 'host' || !document.hidden || (state !== 'play' && state !== 'end')) { NET.hiddenT = performance.now(); return; }
+  const now = performance.now(), d = Math.min(0.25, (now - NET.hiddenT) / 1000); NET.hiddenT = now;
+  acc += d; while (acc >= CFG.step) { simStep(CFG.step); acc -= CFG.step; }
+  netHostTick(d);
+}, 50);
+
+// ---- guest
+function joinOnline(code) {
+  code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); if (!code) { netStatus('Type the invite code first.'); return; }
+  netLeave(); NET.role = 'client'; NET.code = code;
+  for (const id of ['optMap', 'optBots', 'optDiff', 'optKills', 'optFog']) $(id).disabled = true;
+  $('play').disabled = true; $('play').textContent = 'WAITING FOR HOST';
+  const peer = NET.peer = newPeer(); if (!peer) { netLeave(); return; }
+  netStatus('Connecting to ' + code + '…'); showLobby();
+  peer.on('open', () => {
+    const conn = NET.host = peer.connect(NET_PREFIX + code, { serialization: 'json', reliable: true });
+    conn.on('open', () => { conn.send({ e: 'hello', name: myName() }); netStatus('Joined! Waiting for the host to press PLAY…'); });
+    conn.on('data', clientRecv);
+    conn.on('close', () => netLost('The host closed the game.'));
+    conn.on('error', () => netLost('Lost the connection to the host.'));
+  });
+  peer.on('error', e => {
+    if (e.type === 'peer-unavailable') { netStatus('No game found with code ' + code + '. Check the code, or ask your friend to host again.'); return; }
+    netStatus('Online problem: ' + (e.type || e.message) + '. Check your internet connection.');
+  });
+}
+function netLost(msg) {
+  if (NET.role !== 'client') return;
+  const inMatch = units.length > 0;
+  netLeave();
+  if (inMatch) { units.forEach(u => u.dispose()); units = []; player = null; state = 'menu'; AUD.stopAmbient(); $('hud').classList.add('hidden'); $('end').classList.add('hidden'); $('menu').classList.remove('hidden'); $('play').textContent = 'PLAY'; }
+  netStatus(msg); $('lobby').classList.remove('hidden');
+}
+function clientRecv(m) {
+  if (!m || typeof m !== 'object') return;
+  switch (m.e) {
+    case 'lobby': lobbyUpdate(m.names); netStatus(`Joined! Map: ${m.map}. Waiting for the host to press PLAY…`); break;
+    case 'full': netStatus('That game is full (8 heroes).'); break;
+    case 'start': startClient(m); break;
+    case 'roster': syncRoster(m.roster); break;
+    case 's': if (state !== 'menu' || units.length) clientSnap(m); break;
+    case 'res': cmdResult(m.c, m.r); break;
+    case 'end': clientEnd(m); break;
+  }
+}
+function syncRoster(list) {
+  for (const r of list) {
+    let u = unitById(r.id);
+    if (!u) { u = new Unit(r.id, cleanName(r.name), false); u.pos.set(r.x, 0, r.z); u.prev.copy(u.pos); units.push(u); fowAll(u.root); }
+    if (u.name !== cleanName(r.name)) { u.name = cleanName(r.name); u.label.querySelector('span').textContent = u.name; }
+    u.human = r.human;
+  }
+}
+function startClient(m) {
   AUD.init();
-  settings = { shake: $('optShake').value, bots: +$('optBots').value, diff: $('optDiff').value, kills: +$('optKills').value, move: $('optMove').value, fog: $('optFog').value, gfx: $('optGfx').value, map: $('optMap').value };
+  settings = Object.assign({ shake: $('optShake').value, move: $('optMove').value, gfx: $('optGfx').value }, m.settings);
+  resetMatch();
+  for (const r of m.roster) {
+    const me = r.id === m.you, u = new Unit(r.id, cleanName(r.name), me); u.human = r.human;
+    u.pos.set(r.x, 0, r.z); u.prev.copy(u.pos); u.alive = r.alive; units.push(u);
+    if (me) player = u;
+  }
+  gameTime = m.t || 0; NET.snaps = [];
+  enterMatch();
+  $('play').disabled = false; $('again').classList.add('hidden'); $('endWait').classList.remove('hidden');
+}
+function clientSnap(m) {
+  for (const e of m.ev || []) clientEvent(e);
+  NET.snaps.push({ at: performance.now(), m: new Map(m.u.map(a => [a[0], a])) }); if (NET.snaps.length > 40) NET.snaps.shift();
+  gameTime = m.t;
+  const r = m.r ? { x: m.r[0], z: m.r[1], type: m.r[2] } : null;
+  if (!!r !== !!rune || (r && (r.x !== rune.x || r.z !== rune.z || r.type !== rune.type))) showRune(r && RUNES[r.type] ? r : null);
+  for (const a of m.u) { const u = unitById(a[0]); if (u) applyState(u, a); }
+}
+function applyState(u, a) {
+  const [, , , , hp, maxHp, souls, alive, cs, ct, ut, prot, c0, c1, c2, ucd, bh, bd, br, slow, cyc, imm, inv, kills, deaths, streak, gold, rsp, post, items] = a;
+  u.hp = hp; u.maxHp = maxHp; u.souls = souls;
+  if (alive && !u.alive) { u.pos.set(a[1], 0, a[2]); u.prev.copy(u.pos); }
+  u.alive = !!alive;
+  if (cs >= 0) { if (!u.cast) fxCast(u, cs, a[3]); u.cast = { slot: cs, t: ct }; } else { if (u.cast) u.tele.visible = false; u.cast = null; }
+  u.ult = ut > 0 ? { t: ut } : null; u.prot = prot; u.cd = [c0, c1, c2]; u.ultCd = ucd;
+  u.buffs.haste = bh; u.buffs.dd = bd; u.buffs.regen = br; u.slowT = slow; u.cyclone = cyc; u.immune = imm; u.invis = inv;
+  u.kills = kills; u.deaths = deaths; u.streak = streak; u.gold = gold; u.respawnT = rsp; u.post = post;
+  u.items = items.map(it => it && ITEMS[it[0]] ? { id: it[0], cd: it[1], charges: it[2] === null ? undefined : it[2] } : null);
+  u.mod.cdMul = u.items.some(it => it && it.id === 'scepter') ? ITEMS.scepter.cdMul : 1;
+}
+function clientEvent(e) {
+  const U = unitById;
+  switch (e[0]) {
+    case 'cast': { const u = U(e[1]); if (u && !u.cast) { fxCast(u, e[2], e[3]); u.cast = { slot: e[2], t: CFG.castTime }; } break; }
+    case 'ultc': { const u = U(e[1]); if (u) fxUltCharge(u); break; }
+    case 'raze': { const u = U(e[1]); if (u) { u.cast = null; u.tele.visible = false; fxRaze(u, e[2], e[3], e[4], !!e[5], !!e[6]); } break; }
+    case 'hit': { const o = U(e[1]), s = U(e[3]); if (o && s) fxHit(o, e[2], s); break; }
+    case 'die': { const o = U(e[1]); if (o) { fxDeath(o, U(e[2]) || null, e[3]); o.alive = false; o.cast = null; } break; }
+    case 'spawn': { const u = U(e[1]); if (u) { u.pos.set(e[2], 0, e[3]); u.prev.copy(u.pos); u.alive = true; fxSpawn(u); } break; }
+    case 'req': { const u = U(e[1]); if (u) releaseRequiem(u, e[2], e[3]); break; }
+    case 'rune': { const u = U(e[1]); if (u && RUNES[e[2]]) fxRune(u, { type: e[2], x: e[3], z: e[4] }); showRune(null); break; }
+    case 'gold': { const u = U(e[1]); if (u) fxGold(u, e[2], { x: e[3], z: e[4] }); break; }
+    case 'item': { const u = U(e[1]); if (u && ITEMS[e[2]]) fxItem(u, e[2], e[3] || {}); break; }
+    case 'feed': killfeed(safeHTML(e[1])); break;
+    case 'ann': announce(String(e[1]), String(e[2]), e[3] || undefined); break;
+  }
+}
+// other heroes are drawn ~110 ms in the past, between two snapshots; your own from the newest one
+function clientUpdate(dt) {
+  const S = NET.snaps; if (!S.length) return;
+  const tr = performance.now() - 110;
+  let i = S.length - 1; while (i > 0 && S[i - 1].at > tr) i--;
+  const b = S[i], a = S[Math.max(0, i - 1)], latest = S[S.length - 1];
+  const k = b.at > a.at ? THREE.MathUtils.clamp((tr - a.at) / (b.at - a.at), 0, 1) : 1;
+  for (const u of units) {
+    const B = b.m.get(u.id), A = a.m.get(u.id) || B, L = latest.m.get(u.id); if (!B || !L) continue;
+    u.prev.copy(u.pos);
+    if (u === player) {
+      const d = Math.hypot(L[1] - u.pos.x, L[2] - u.pos.z), s = d > 3 ? 1 : 1 - Math.exp(-dt * 18);
+      u.pos.x += (L[1] - u.pos.x) * s; u.pos.z += (L[2] - u.pos.z) * s; u.facing = L[3];
+    } else if (Math.hypot(B[1] - A[1], B[2] - A[2]) > 3) { u.pos.set(B[1], 0, B[2]); u.facing = B[3]; } // blink or respawn: no sliding
+    else { u.pos.set(A[1] + (B[1] - A[1]) * k, 0, A[2] + (B[2] - A[2]) * k); u.facing = wrap(A[3] + wrap(B[3] - A[3]) * k); }
+    u.vel.subVectors(u.pos, u.prev).divideScalar(Math.max(dt, 1e-3));
+  }
+  if (settings.move === 'wasd' && state === 'play') { const w = wasd(), sig = w.x + ',' + w.z; if (sig !== NET.lastWasd) { NET.lastWasd = sig; act({ t: 'wasd', x: w.x, z: w.z }); } }
+}
+function clientEnd(m) {
+  for (const [id, k, d, as, dmg, casts, hits, gold] of m.stats) { const u = unitById(id); if (!u) continue; u.kills = k; u.deaths = d; u.stats.assists = as; u.stats.dmg = dmg; u.stats.casts = casts; u.stats.razesHit = hits; u.stats.goldEarned = gold; }
+  const w = unitById(m.w); if (w) endGame(w, unitById(m.v));
+}
+// lobby buttons
+$('hostBtn').onclick = () => hostOnline();
+$('joinBtn').onclick = () => { $('joinBox').classList.toggle('hidden'); $('joinCode').focus(); };
+$('joinGo').onclick = () => joinOnline($('joinCode').value);
+$('joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') joinOnline($('joinCode').value); });
+$('copyLink').onclick = () => {
+  const t = inviteLink(), done = () => { $('copyLink').textContent = 'Copied!'; setTimeout(() => { $('copyLink').textContent = 'Copy invite link'; }, 1500); };
+  if (navigator.clipboard) navigator.clipboard.writeText(t).then(done, () => prompt('Copy this invite link:', t)); else prompt('Copy this invite link:', t);
+};
+$('leaveBtn').onclick = () => { if (NET.role === 'client' && units.length) netLost('You left the game.'); else { netLeave(); netStatus(''); } };
+try { $('optName').value = localStorage.getItem('sfa-name') || ''; } catch (e) {}
+$('optName').addEventListener('change', () => { try { localStorage.setItem('sfa-name', $('optName').value); } catch (e) {} if (NET.role === 'host') lobbyUpdate(); });
+$('optMap').addEventListener('change', () => { if (NET.role === 'host') lobbyUpdate(); });
+
+// ------------------------------------------------------------------ game flow
+function resetMatch() {
   units.forEach(u => u.dispose()); units = []; bots = []; orbs.length = 0; requiemLines.length = 0;
   camFocus = null; slowMo = null; hitStopT = 0; $('letterbox').classList.remove('on'); renderer.domElement.classList.remove('dead'); firstBlood = false; gameTime = 0;
-  particles.clear(); smoke.clear(); rune = null; runeMesh.visible = false; runeLight.intensity = 0; runeT = CFG.firstRune;
+  particles.clear(); smoke.clear(); showRune(null); runeT = CFG.firstRune;
+  for (const w of [...document.querySelectorAll('.dmg')]) w.remove(); floats.length = 0;
   buildMap(settings.map);
   setQuality(settings.gfx);
   AUD.startAmbient(MAP.theme);
-  player = new Unit(0, 'You', true); units.push(player);
-  for (let i = 0; i < settings.bots; i++) { const u = new Unit(i + 1, NAMES[i], false); units.push(u); bots.push(new Bot(u, DIFF[settings.diff])); }
+}
+function startGame() {
+  AUD.init();
+  settings = { shake: $('optShake').value, bots: +$('optBots').value, diff: $('optDiff').value, kills: +$('optKills').value, move: $('optMove').value, fog: $('optFog').value, gfx: $('optGfx').value, map: $('optMap').value };
+  resetMatch();
+  player = new Unit(0, NET.role === 'host' ? myName() : 'You', true); player.human = true; units.push(player);
+  // online: every friend in the lobby gets a hero; the Bots setting adds bots on top, up to 8 heroes
+  if (NET.role === 'host') for (const c of NET.conns) { c.unit = null; if (units.length < NET_MAX) { const u = new Unit(units.length, c.name, false); u.human = true; u.remote = c; c.unit = u; units.push(u); } }
+  const nb = Math.min(settings.bots, NET_MAX - units.length);
+  for (let i = 0; i < nb; i++) { const u = new Unit(units.length, NAMES[i], false); units.push(u); bots.push(new Bot(u, DIFF[settings.diff])); }
   units.forEach(u => respawn(u));
+  enterMatch();
+  if (NET.role === 'host') { NET.evq = []; for (const c of NET.conns) if (c.unit) sendStart(c); else c.send({ e: 'full' }); }
+}
+function enterMatch() {
   camLook.set(player.pos.x, 0, player.pos.z);
   fogOn = settings.fog !== 'off'; fowCur.fill(0); fowSeen.fill(fogOn ? 0 : 1); fowT = 0;
   fowAll(scene);
@@ -2370,6 +2717,7 @@ function startGame() {
 }
 // the winning kill plays in slow motion with the camera on the victim, then the scoreboard
 function endGame(w, victim) {
+  if (NET.role === 'host') netSendEnd(w, victim);
   state = 'end'; toggleShop(false);
   camFocus = (victim || w).pos.clone(); $('letterbox').classList.add('on');
   announce(w.isPlayer ? 'VICTORY' : 'DEFEAT', w.isPlayer ? 'You harvested their souls.' : `${w.name} claims the arena.`);
@@ -2399,6 +2747,9 @@ const MATCH_OPTS = { optMap: 'map', optBots: 'bots', optDiff: 'diff', optKills: 
 const matchChanged = () => Object.entries(MATCH_OPTS).some(([id, k]) => $(id).value !== String(settings[k]));
 const paused = () => state === 'menu' && units.length && $('play').textContent !== 'PLAY';
 $('play').onclick = () => {
+  // online, mid-match: the menu is only an overlay; PLAY goes back to the fight (the host restarts only if a match option changed)
+  if (NET.role && units.length && state !== 'menu' && !(NET.role === 'host' && matchChanged())) { settings.move = $('optMove').value; $('menu').classList.add('hidden'); return; }
+  if (NET.role === 'client') return;
   if (paused() && !matchChanged()) {
     settings.move = $('optMove').value;
     if ($('optGfx').value !== settings.gfx) { settings.gfx = $('optGfx').value; setQuality(settings.gfx); }
@@ -2424,7 +2775,7 @@ function simStep(st) {
     bots.forEach(b => b.step(st));
     if (!rune) { runeT -= st; if (runeT <= 0) spawnRune(); }
   }
-  units.forEach(u => u.step(st, u.isPlayer ? wasd() : null));
+  units.forEach(u => u.step(st, u.isPlayer ? wasd() : u.netInput || null));
   updateRequiem(st);
   for (let i = 0; i < units.length; i++) for (let j = i + 1; j < units.length; j++) {
     const a = units[i], b = units[j]; if (!a.alive || !b.alive) continue;
@@ -2446,10 +2797,12 @@ function frame(now) {
   const P = window.__sfaProfile, pt = P ? [performance.now()] : null, mark = P ? () => pt.push(performance.now()) : () => {};
   time += dt; timeU.value = time;
   flashA = Math.max(0, flashA - rdt * 2.6); $('flash').style.opacity = flashA;
-  if (state === 'play' || state === 'end') {
+  if (NET.role === 'client') { if (state === 'play' || state === 'end') { gameTime += dt; updateRequiem(dt); clientUpdate(dt); } }
+  else if (state === 'play' || state === 'end') {
     acc += dt;
     while (acc >= CFG.step) { simStep(CFG.step); acc -= CFG.step; }
   }
+  if (NET.role === 'host' && (state === 'play' || state === 'end')) netHostTick(rdt);
   mark(); // sim
   units.forEach(u => u.visual(dt, time));
   mark(); // visual
@@ -2569,11 +2922,12 @@ const origBuild = buildMap;
 buildMap = function (id) { origBuild(id); edgePointsCache = edgePoints(80, 0.5); };
 setQuality('high');
 requestAnimationFrame(frame);
-boot();
+boot().then(() => { const m = /#join=([A-Za-z0-9]+)/.exec(location.hash); if (m) { $('joinCode').value = m[1]; $('joinBox').classList.remove('hidden'); joinOnline(m[1]); } });
 window.__game = { renderer, get fogOn() { return fogOn; },  get units() { return units; }, get state() { return state; }, get map() { return MAP; }, get rune() { return rune; }, CFG, buildMap: id => buildMap(id),
   get quality() { return { rung, autoQuality, heroShadows, fxDensity, pixelRatio: renderer.getPixelRatio() }; },
   set devCam(c) { devCam = c; },
   terrain: { H, canStep, findPath, NAV, navCell, navOK, buildNav },
+  net: NET, act, joinOnline, hostOnline,
   dev: { advance(sec) { for (let i = 0; i < Math.round(sec / CFG.step); i++) simStep(CFG.step); }, useItem, buyItem, sellItem, canSeeUnit, canSee, damage, resolveRaze, get bots() { return bots; } },
   forceQuality(pr) { autoQuality = false; rung = 0; baseDpr = pr; applyRung(); } }; // for dev/bench.js
 })();

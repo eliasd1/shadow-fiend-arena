@@ -126,3 +126,24 @@ canvas { transition: filter .4s; }
 #endTable .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 #endTable em { margin-left: 6px; padding: 1px 5px; font-size: 10px; font-style: normal; color: #1a0c00; background: linear-gradient(#ffe08a, #c8902a); border-radius: 2px; }
 #endTable .it img { width: 22px; height: 22px; margin-left: 2px; border: 1px solid #000; vertical-align: middle; }
+
+/* online lobby */
+#online { margin-top: 14px; padding-top: 10px; border-top: 1px solid #4a1a10; }
+#online input, #joinCode { background: #120806; color: #f0d8c8; border: 1px solid #6b1d12; border-radius: 3px; padding: 5px 8px; font-size: 14px; width: 170px; }
+.netbtns { display: flex; gap: 8px; }
+button.small { margin-top: 8px; padding: 7px 10px; font-size: 13px; letter-spacing: 1.5px; box-shadow: none; }
+button.ghost { background: transparent; border-color: #6b1d12; color: #c9a898; }
+#joinBox { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+#joinBox.hidden, #lobby.hidden, #inviteBox.hidden, #endWait.hidden, #again.hidden { display: none; }
+#joinBox input { flex: 1; text-transform: uppercase; letter-spacing: 3px; }
+#joinBox button { width: 90px; margin-top: 0; }
+#lobby { margin-top: 10px; text-align: left; }
+#inviteBox { display: flex; align-items: center; gap: 10px; color: #d9b9a8; }
+#inviteBox b { font-size: 22px; letter-spacing: 4px; color: #ffd27a; }
+#inviteBox button { width: auto; margin: 0 0 0 auto; }
+#lobbyList { margin: 8px 0 2px; font-size: 14px; }
+#lobbyList div { padding: 2px 0; }
+#lobbyList .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; }
+#netState { font-size: 12px; color: #c9a898; min-height: 1em; margin: 6px 0 0; }
+#endWait { color: #c9a898; margin-top: 14px; }
+select:disabled { opacity: .5; }
