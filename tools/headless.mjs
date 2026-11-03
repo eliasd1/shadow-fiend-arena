@@ -26,7 +26,12 @@ try {
   ws.addEventListener('message', e => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.rej(new Error(m.error.message)) : p.res(m.result); } });
   await send('Page.enable'); await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
-  await send('Page.navigate', { url }); await sleep(1500);
+  await send('Page.navigate', { url });
+  for (let k = 0; k < 120; k++) { // wait for the page (a big single-file build parses for a while)
+    const r = await send('Runtime.evaluate', { expression: 'document.readyState', returnByValue: true });
+    if (r.result.value === 'complete') break; await sleep(250);
+  }
+  await sleep(500);
   fs.mkdirSync(outDir, { recursive: true });
   for (const st of JSON.parse(fs.readFileSync(stepsFile, 'utf8'))) {
     if (st.eval) {

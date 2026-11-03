@@ -6,3 +6,4 @@ models/props/*.glb
 .claude/
 models/optimized/
 docs/walk/*.webm
+art/textures_src/
