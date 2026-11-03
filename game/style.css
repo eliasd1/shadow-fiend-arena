@@ -104,6 +104,7 @@ input[type=range] { width: 190px; accent-color: #d8340a; }
 .shop-head { position: relative; }
 
 /* ---------------------------------------------------------------- game feel (stage 4) */
+#vignette { position: fixed; inset: 0; pointer-events: none; z-index: 3; background: radial-gradient(ellipse at center, transparent 58%, rgba(0,0,0,.42) 125%); }
 #flash { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; --c: #f00; background: radial-gradient(ellipse at center, transparent 45%, var(--c) 130%); }
 canvas.dead { filter: grayscale(.85) brightness(.7) contrast(1.05); transition: filter .6s; }
 canvas { transition: filter .4s; }
