@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Hero viewer (dev)</title>
+<style>html,body{margin:0;background:#202428;color:#ddd;font:12px monospace}#v{display:flex;flex-wrap:wrap}canvas{border:1px solid #444}#info{position:fixed;left:8px;bottom:8px}</style></head>
+<body><div id="v"></div><div id="info"></div>
+<script src="../lib/three.min.js"></script><script src="../lib/GLTFLoader.js"></script><script src="../hero-data.js"></script>
+<script>
+// Orthographic front / side / top views of the raw hero mesh (model space), with a 0.1 grid.
+const views = [['front (+z toward camera)', [0, 0, 5]], ['side (+x toward camera)', [5, 0, 0]], ['top', [0, 5, 0.0001]]];
+const bin = atob(HERO_GLB_B64), buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+window.ready = new Promise(res => new THREE.GLTFLoader().parse(buf.buffer, '', g => {
+  const mesh = g.scene.getObjectByProperty('isMesh', true); window.heroMesh = mesh;
+  window.views = views.map(([label, p]) => {
+    const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(420, 560); r.outputEncoding = THREE.sRGBEncoding;
+    document.getElementById('v').appendChild(r.domElement);
+    const s = new THREE.Scene(); s.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2)); const d = new THREE.DirectionalLight(0xffffff, 1); d.position.set(2, 3, 4); s.add(d);
+    s.add(mesh.clone());
+    const grid = new THREE.GridHelper(2.4, 24, 0x888888, 0x444444); if (p[2] > 1) grid.rotation.x = Math.PI / 2; else if (p[0] > 1) grid.rotation.z = Math.PI / 2; s.add(grid);
+    const c = new THREE.OrthographicCamera(-0.9, 0.9, 1.2, -1.2, 0.01, 20); c.position.set(...p); c.lookAt(0, 0, 0); if (p[1] > 1) c.up.set(0, 0, -1), c.lookAt(0, 0, 0);
+    r.render(s, c); return { r, s, c, label };
+  });
+  document.getElementById('info').textContent = views.map(v => v[0]).join(' | ') + '   grid = 0.1';
+  res();
+}));
+</script></body></html>

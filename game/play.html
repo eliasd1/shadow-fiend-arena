@@ -4750,38 +4750,48 @@ function fitModel(obj, height) {
   holder.add(obj); return holder;
 }
 
-// hero: arms/tail are bent in the vertex shader (the model has no skeleton)
+// hero: a skeleton built in code. The model ships without one, so bones are placed from the mesh
+// layout and every vertex is skinned by height and side (see skinHero).
 let heroTemplate = null;
 const HERO_H = 2.7;
-const ANIM_GLSL_HEAD = 'uniform vec4 uArms; uniform vec2 uTail;\n';
-const ANIM_GLSL = `
-  {
-    // model space: x = left/right, y = up (-0.95..0.95), z = forward (+)
-    float side = sign(transformed.x);
-    float ax = abs(transformed.x);
-    float w = smoothstep(0.24, 0.40, ax) * smoothstep(0.62, 0.20, transformed.y);
-    float pitch = side > 0.0 ? uArms.x : uArms.z;   // forward raise (rad)
-    float spread = side > 0.0 ? uArms.y : uArms.w;  // outward spread (rad)
-    vec2 piv = vec2(0.36, 0.38);
-    float reach = clamp((piv.y - transformed.y) / 1.25, 0.0, 1.0);
-    float a = -pitch * w * (0.35 + 0.65 * reach);
-    float dy = transformed.y - piv.y, dz = transformed.z;
-    transformed.y = piv.y + dy * cos(a) - dz * sin(a);
-    transformed.z = dy * sin(a) + dz * cos(a);
-    float b = spread * w * reach * side;
-    float dx = transformed.x - side * piv.x; dy = transformed.y - piv.y;
-    transformed.x = side * piv.x + dx * cos(b) - dy * sin(b);
-    transformed.y = piv.y + dx * sin(b) + dy * cos(b);
-    float tw = smoothstep(-0.05, -0.6, transformed.y) * (1.0 - smoothstep(0.12, 0.25, ax));
-    transformed.x += sin(uTail.x * 3.2 + transformed.y * 5.0) * uTail.y * tw;
-    transformed.z += cos(uTail.x * 2.6 + transformed.y * 4.0) * uTail.y * 0.6 * tw - tw * uTail.y * 0.8;
-  }`;
-function patchAnim(mat, uniforms) {
-  mat.onBeforeCompile = sh => {
-    sh.uniforms.uArms = uniforms.uArms; sh.uniforms.uTail = uniforms.uTail;
-    sh.vertexShader = ANIM_GLSL_HEAD + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + ANIM_GLSL);
-  };
-  mat.customProgramCacheKey = () => 'sfa-anim';
+// model space: x = right, y = up (-0.95..0.95), z = forward. [name, parent, x, y, z]; right arm mirrored to left
+const HERO_BONES = [
+  ['root', -1, 0, 0, 0], ['pelvis', 0, 0, 0.02, 0],
+  ['tail1', 1, 0, -0.04, 0], ['tail2', 2, 0, -0.34, 0], ['tail3', 3, 0, -0.64, 0],
+  ['chest', 1, 0, 0.24, 0], ['neck', 5, 0, 0.53, 0], ['head', 6, 0, 0.67, 0],
+  ['clavR', 5, 0.12, 0.47, 0], ['upperR', 8, 0.36, 0.44, 0], ['foreR', 9, 0.47, 0.0, 0], ['handR', 10, 0.60, -0.42, 0],
+  ['clavL', 5, -0.12, 0.47, 0], ['upperL', 12, -0.36, 0.44, 0], ['foreL', 13, -0.47, 0.0, 0], ['handL', 14, -0.60, -0.42, 0],
+];
+// which height range each bone owns: body bones along the centre line, arm bones down each arm
+const BODY_SPANS = [[1, -0.02, 0.22], [5, 0.22, 0.52], [6, 0.52, 0.66], [7, 0.66, 1.1], [2, -0.32, -0.02], [3, -0.62, -0.32], [4, -1.1, -0.62]];
+const ARM_SPANS = [[0, 0.45, 1.1], [1, 0.0, 0.45], [2, -0.42, 0.0], [3, -1.1, -0.42]]; // clav, upper, fore, hand
+function skinHero(geo) {
+  const P = geo.attributes.position, n = P.count, idx = new Uint16Array(n * 4), wts = new Float32Array(n * 4);
+  const span = (y, lo, hi, w) => { const d = y < lo ? lo - y : y > hi ? y - hi : 0; return Math.exp(-(d / w) * (d / w)); };
+  for (let i = 0; i < n; i++) {
+    const x = P.getX(i), y = P.getY(i), ax = Math.abs(x), side = x >= 0 ? 0 : 4;
+    // arms hang beside the body: everything outside this line (it widens toward the shoulders) is arm
+    const edge = 0.27 + Math.max(0, Math.min(y, 0.45)) * 0.18;
+    const arm = smooth(edge - 0.05, edge + 0.05, ax);
+    const cand = [];
+    let sb = 0; for (const [b, lo, hi] of BODY_SPANS) sb += span(y, lo, hi, 0.07);
+    for (const [b, lo, hi] of BODY_SPANS) cand.push([b, (1 - arm) * span(y, lo, hi, 0.07) / sb]);
+    let sa = 0; for (const [, lo, hi] of ARM_SPANS) sa += span(y, lo, hi, 0.06);
+    for (const [k, lo, hi] of ARM_SPANS) cand.push([8 + side + k, arm * span(y, lo, hi, 0.06) / sa]);
+    cand.sort((a, b) => b[1] - a[1]);
+    let sum = 0; for (let k = 0; k < 4; k++) sum += cand[k][1];
+    for (let k = 0; k < 4; k++) { idx[i * 4 + k] = cand[k][0]; wts[i * 4 + k] = cand[k][1] / sum; }
+  }
+  geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(idx, 4));
+  geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(wts, 4));
+  // culling uses the rest-pose bounds, so make them cover every pose (arms raised overhead reach y ~1.9)
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.45, 0), 1.6);
+}
+function makeBones() {
+  const bones = HERO_BONES.map(([name, p, x, y, z]) => { const b = new THREE.Bone(); b.name = name; b.userData.at = new THREE.Vector3(x, y, z); return b; });
+  HERO_BONES.forEach(([, p], i) => { if (p >= 0) bones[p].add(bones[i]); });
+  bones.forEach(b => b.position.copy(b.parent && b.parent.isBone ? b.userData.at.clone().sub(b.parent.userData.at) : b.userData.at));
+  return bones;
 }
 function fallbackHero() {
   const g = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: 0x1a0606, emissive: 0x7a1004, emissiveIntensity: 0.6, roughness: 0.6, flatShading: true });
@@ -4791,41 +4801,43 @@ function fallbackHero() {
   for (const sx of [-1, 1]) { add(new THREE.ConeGeometry(0.28, 0.8, 4), sx * 0.55, 1.75, 0, 0, -sx * 0.7); add(new THREE.CylinderGeometry(0.07, 0.12, 1.3, 5), sx * 0.75, 1.0, 0.1, 0, sx * 0.25); }
   return fitModel(g, HERO_H);
 }
-// hero shadow: the hero mesh flattened onto the ground along the sun. The stencil keeps overlapping
+// hero shadow: the skinned hero flattened onto the ground along the sun. The stencil keeps overlapping
 // triangles (and overlapping heroes) from darkening the same pixel twice.
 const HERO_SHADOW_Y = 0.025;
-function heroShadowMat(uniforms) {
-  const m = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide,
-    stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilZPass: THREE.ReplaceStencilOperation });
-  m.userData.fow = true; // skip the fog-of-war patch: project_vertex is replaced below
-  m.onBeforeCompile = sh => {
-    sh.uniforms.uArms = uniforms.uArms; sh.uniforms.uTail = uniforms.uTail;
-    sh.vertexShader = ANIM_GLSL_HEAD + sh.vertexShader
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + (heroTemplate ? ANIM_GLSL : ''))
-      .replace('#include <project_vertex>', `vec4 wp = modelMatrix * vec4(transformed, 1.0);
-        const vec3 L = vec3(${SUN_DIR.x.toFixed(4)}, ${SUN_DIR.y.toFixed(4)}, ${SUN_DIR.z.toFixed(4)});
-        wp.xyz -= L * ((wp.y - ${HERO_SHADOW_Y}) / L.y);
-        vec4 mvPosition = viewMatrix * wp; gl_Position = projectionMatrix * mvPosition;`);
-  };
-  m.customProgramCacheKey = () => 'sfa-hero-shadow';
-  return m;
-}
+const heroShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide,
+  stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilZPass: THREE.ReplaceStencilOperation });
+heroShadowMat.userData.fow = true; // skip the fog-of-war patch: project_vertex is replaced below
+heroShadowMat.onBeforeCompile = sh => {
+  sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', `vec4 wp = modelMatrix * vec4(transformed, 1.0);
+    const vec3 L = vec3(${SUN_DIR.x.toFixed(4)}, ${SUN_DIR.y.toFixed(4)}, ${SUN_DIR.z.toFixed(4)});
+    wp.xyz -= L * ((wp.y - ${HERO_SHADOW_Y}) / L.y);
+    vec4 mvPosition = viewMatrix * wp; gl_Position = projectionMatrix * mvPosition;`);
+};
+heroShadowMat.customProgramCacheKey = () => 'sfa-hero-shadow';
 function cloneHero() {
   const t = heroTemplate || fallbackHero();
   const c = t.clone(true); const mats = [], shadows = [];
-  const uniforms = { uArms: { value: new THREE.Vector4() }, uTail: { value: new THREE.Vector2() } };
-  const sm = heroShadowMat(uniforms);
+  let bones = null;
   c.traverse(o => {
-    if (o.isMesh && !o.userData.shadow) {
-      o.material = o.material.clone();
-      o.material.userData.base = o.material.color.clone();
-      if (heroTemplate) patchAnim(o.material, uniforms);
-      mats.push(o.material);
-      const s = new THREE.Mesh(heroTemplate && heroTemplate.userData.shadowGeo || o.geometry, sm);
-      s.userData.shadow = true; s.renderOrder = 1; s.frustumCulled = false; o.add(s); shadows.push(s);
-    }
+    if (!o.isMesh || o.userData.shadow) return;
+    o.material = o.material.clone();
+    o.material.userData.base = o.material.color.clone();
+    mats.push(o.material);
+    if (!heroTemplate) return;
+    // swap the static mesh for a skinned one with this unit's own skeleton
+    const sk = new THREE.SkinnedMesh(o.geometry, o.material);
+    sk.position.copy(o.position); sk.quaternion.copy(o.quaternion); sk.scale.copy(o.scale);
+    o.parent.add(sk); o.parent.remove(o);
+    bones = makeBones(); sk.add(bones[0]);
+    c.updateMatrixWorld(true);
+    const skel = new THREE.Skeleton(bones); sk.bind(skel);
+    const s = new THREE.SkinnedMesh(heroTemplate.userData.shadowGeo || o.geometry, heroShadowMat);
+    s.userData.shadow = true; s.renderOrder = 1; s.frustumCulled = false; sk.add(s); s.bind(skel, sk.bindMatrix);
+    shadows.push(s);
   });
-  c.userData.mats = mats; c.userData.anim = uniforms; c.userData.shadows = shadows; c.userData.shadowMat = sm; return c;
+  c.userData.mats = mats; c.userData.shadows = shadows;
+  c.userData.bones = bones && Object.fromEntries(bones.map(b => [b.name, b]));
+  return c;
 }
 
 // props
@@ -5089,7 +5101,7 @@ class Unit {
     this.buffs = { haste: 0, dd: 0, regen: 0 };
     this.lastHitBy = null; this.lastHitT = -99; this.multi = 0; this.multiT = 0;
     this.flash = 0; this.deathT = 0; this.bob = rnd(0, 6); this.walkPhase = 0; this.flinch = 0;
-    this.arms = new THREE.Vector4(); this.lean = 0;
+    this.pose = {}; this.poseT = {}; this.poseBase = {}; this.poseHold = {}; this.spdS = 0; this.yawS = 0; this.lastFacing = 0; this.dip = 0; this.bank = 0;
     this.root = new THREE.Group(); scene.add(this.root);
     this.model = cloneHero(); this.root.add(this.model);
     const ring = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: this.color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.6 }));
@@ -5105,7 +5117,7 @@ class Unit {
   dispose() {
     scene.remove(this.root); scene.remove(this.tele); this.label.remove();
     for (const m of this.model.userData.mats) m.dispose();
-    this.model.userData.shadowMat.dispose(); this.ring.material.dispose(); this.blob.material.dispose(); this.tele.material.dispose();
+    this.ring.material.dispose(); this.blob.material.dispose(); this.tele.material.dispose();
   }
   get speed() { let s = CFG.speed * (this.buffs.haste > 0 ? 1.6 : 1); const h = hazardAt(this.pos.x, this.pos.z); if (h && h.type === 'water') s *= 0.85; return s; }
   moveTo(x, z) { if (!this.alive || this.cast) return; this.moveTarget = new THREE.Vector2(x, z); this.faceAngle = null; }
@@ -5186,46 +5198,75 @@ class Unit {
     if (rune && Math.hypot(this.pos.x - rune.x, this.pos.z - rune.z) < 1.1) takeRune(this);
     this.vel.subVectors(this.pos, this.prev).divideScalar(dt);
   }
+  // Pose in the style of the DotA 1 Shadow Fiend (the WC3 Firelord model): a legless, hunched figure
+  // that glides with a slow float, long arms swinging like heavy pendulums and a tail streaming behind.
   animate(dt, t) {
-    // smoothed speed so collisions/jitter don't twitch the walk
-    const raw = Math.min(Math.hypot(this.vel.x, this.vel.z) / CFG.speed, 1.4);
-    this.spdS = (this.spdS || 0) + (raw - (this.spdS || 0)) * (1 - Math.exp(-dt * 8));
+    const raw = Math.min(Math.hypot(this.vel.x, this.vel.z) / CFG.speed, 1.6);
+    this.spdS += (raw - this.spdS) * (1 - Math.exp(-dt * 6));
     const w = Math.min(this.spdS, 1), idle = 1 - w;
-    // slow, cocky stride: about one full stride per second
-    this.walkPhase += dt * (w > 0.05 ? 5.6 + this.spdS * 1.2 : 0);
-    const ph = this.walkPhase, lag = ph - 0.6;           // arms trail the shoulders: loose and heavy
-    const breathe = Math.sin(t * 1.5 + this.bob);
-    let pL, pR, sL, sR, lean, roll, twist, sway, bounce;
-    // swagger: chest out (leans back), shoulders roll and twist into every stride, hips sway
-    const swing = Math.sin(lag);
-    pR = swing * 0.62 * w - 0.1 * w + breathe * 0.05 * idle;
-    pL = -swing * 0.62 * w - 0.1 * w + breathe * 0.05 * idle;
-    sR = 0.2 * w + Math.max(0, swing) * 0.22 * w + (0.1 + breathe * 0.04) * idle;
-    sL = 0.2 * w + Math.max(0, -swing) * 0.22 * w + (0.1 + breathe * 0.04) * idle;
-    lean = -0.09 * w - 0.03 * idle + breathe * 0.015;
-    roll = Math.sin(ph) * 0.16 * w + Math.sin(t * 0.8 + this.bob) * 0.03 * idle;
-    twist = Math.sin(ph) * 0.22 * w + Math.sin(t * 0.55 + this.bob) * 0.06 * idle;
-    sway = Math.sin(ph) * 0.12 * w;
-    bounce = Math.abs(Math.sin(ph)) * 0.09 * w;
-    if (this.cast) {
-      const k = 1 - this.cast.t / CFG.castTime;
-      if (k < 0.72) { const e = smooth(0, 0.72, k); pL = pR = -0.35 + 2.3 * e; sL = sR = 0.45 * e; lean = -0.22 * e; }
-      else { const e = smooth(0.72, 1, k); pL = pR = 1.95 - 2.2 * e; sL = sR = 0.45 - 0.3 * e; lean = -0.22 + 0.36 * e; }
-      roll = twist = sway = bounce = 0;
-    } else if (this.post > 0) {
-      const e = 1 - this.post / 0.38; pL = pR = -0.25 + 0.25 * smooth(0, 1, e); sL = sR = 0.15 * (1 - e); lean = 0.14 * (1 - smooth(0, 1, e));
-      roll *= e; twist *= e; sway *= e; bounce *= e;
+    const yaw = wrap(this.facing - this.lastFacing) / Math.max(dt, 1e-3); this.lastFacing = this.facing;
+    this.yawS += (Math.max(-12, Math.min(12, yaw)) - this.yawS) * (1 - Math.exp(-dt * 6));
+    this.walkPhase += dt * Math.PI * 2 * 1.05 * this.spdS; // about one stride per second, faster with Haste
+    const ph = this.walkPhase, br = Math.sin(t * 1.6 + this.bob), T = this.poseT;
+    // glide
+    T.pelvisX = 0.06 + 0.10 * w;                       // body only tips a little: the hunch is in the shoulders
+    T.chestX = 0.16 + 0.08 * w + br * 0.03 * idle;     // shoulders rolled forward; breathing at rest
+    T.chestY = Math.sin(ph) * 0.09 * w;                // shoulders turn a little into each swing
+    T.neckX = -0.10 - 0.12 * w;                        // head stays up, eyes ahead
+    T.headX = 0.06 + br * 0.02 * idle;
+    for (const [s, k] of [[1, 'R'], [-1, 'L']]) {
+      const sw = Math.sin(ph) * s;                     // arms swing in opposition
+      T['upperX' + k] = -sw * 0.38 * w - 0.08 + Math.sin(t * 1.1 + this.bob + s) * 0.05 * idle;
+      T['upperZ' + k] = s * (0.06 + 0.08 * w + br * 0.02 * idle);
+      // elbows and claws lag the shoulder: loose, heavy follow-through
+      T['foreX' + k] = -0.18 - Math.sin(ph - 0.8) * s * 0.22 * w;
+      T['handX' + k] = -0.12 - Math.sin(ph - 1.5) * s * 0.18 * w;
+      T['clavX' + k] = sw * 0.05 * w;
     }
-    if (this.flinch > 0) { this.flinch = Math.max(0, this.flinch - dt * 4); sL += this.flinch * 0.5; sR += this.flinch * 0.5; pL -= this.flinch * 0.4; pR -= this.flinch * 0.4; lean -= this.flinch * 0.25; }
-    const r = 1 - Math.exp(-dt * (this.cast ? 30 : 10));
-    this.arms.x += (pR - this.arms.x) * r; this.arms.y += (sR - this.arms.y) * r; this.arms.z += (pL - this.arms.z) * r; this.arms.w += (sL - this.arms.w) * r;
-    this.lean += (lean - this.lean) * r;
-    this.roll = (this.roll || 0) + (roll - (this.roll || 0)) * r;
-    this.twist = (this.twist || 0) + (twist - (this.twist || 0)) * r;
-    this.sway = (this.sway || 0) + (sway - (this.sway || 0)) * r;
-    this.bounce = (this.bounce || 0) + (bounce - (this.bounce || 0)) * r;
-    const a = this.model.userData.anim;
-    a.uArms.value.copy(this.arms); a.uTail.value.set(t + this.bob, 0.05 + this.spdS * 0.07);
+    const turn = Math.max(-1, Math.min(1, this.yawS / 6));
+    for (let i = 1; i <= 3; i++) { // tail streams back and waves, trailing the turn
+      T['tailX' + i] = (0.10 + 0.20 * w) * [1, 0.8, 0.7][i - 1];
+      T['tailZ' + i] = Math.sin(t * 2.4 + this.bob - i * 0.9) * (0.07 + 0.08 * w) + turn * 0.12 * i * w;
+    }
+    Object.assign(this.poseBase, T);
+    // raze: both arms rise overhead, then slam down in front on the impact frame
+    let dip = 0;
+    const slam = (e, k, s) => { T['upperX' + k] = -2.5 + 1.9 * e; T['upperZ' + k] = s * 0.25 * (1 - e); T['foreX' + k] = -0.5 + 0.2 * e; T['handX' + k] = -0.3 + 0.1 * e; };
+    if (this.cast) {
+      const c = 1 - this.cast.t / CFG.castTime;
+      if (c < 0.6) {
+        const e = smooth(0, 0.6, c);
+        for (const [s, k] of [[1, 'R'], [-1, 'L']]) { T['upperX' + k] = -2.5 * e; T['upperZ' + k] = s * 0.25 * e; T['foreX' + k] = -0.5 * e; T['handX' + k] = -0.3 * e; }
+        T.chestX = 0.1 - 0.35 * e; T.pelvisX = 0.1 - 0.1 * e; T.neckX = -0.1; T.headX = -0.15 * e;
+      } else {
+        const e = smooth(0.6, 1, c);
+        for (const [s, k] of [[1, 'R'], [-1, 'L']]) slam(e, k, s);
+        T.chestX = -0.25 + 0.75 * e; T.pelvisX = 0.35 * e; T.neckX = -0.1 - 0.2 * e; T.headX = 0.1 * e;
+        dip = 0.08 * e;
+      }
+    } else if (this.post > 0) { // hold the slam, then settle back into the glide pose computed above
+      const e = smooth(0.15, 1, 1 - this.post / 0.38), H = this.poseHold;
+      for (const [s, k] of [[1, 'R'], [-1, 'L']]) slam(1, k, s);
+      for (const k of ['R', 'L']) for (const p of ['upperX', 'upperZ', 'foreX', 'handX']) { H[p + k] = T[p + k]; }
+      H.chestX = 0.5; H.pelvisX = 0.35; H.neckX = -0.3; H.headX = 0.1;
+      for (const p in H) T[p] = H[p] + (this.poseBase[p] - H[p]) * e;
+      dip = 0.08 * (1 - e);
+    }
+    if (this.flinch > 0) {
+      this.flinch = Math.max(0, this.flinch - dt * 4);
+      T.chestX -= this.flinch * 0.35; T.neckX += this.flinch * 0.2; T.upperZR += this.flinch * 0.4; T.upperZL -= this.flinch * 0.4;
+    }
+    const r = 1 - Math.exp(-dt * (this.cast ? 28 : 12)), C = this.pose;
+    for (const p in T) C[p] = C[p] === undefined ? T[p] : C[p] + (T[p] - C[p]) * r;
+    this.dip = dip; this.bank = Math.max(-0.3, Math.min(0.3, -this.yawS * 0.035)) * w;
+    const B = this.model.userData.bones; if (!B) return;
+    B.pelvis.rotation.x = C.pelvisX; B.chest.rotation.set(C.chestX, C.chestY, 0); B.neck.rotation.x = C.neckX; B.head.rotation.x = C.headX;
+    for (const k of ['R', 'L']) {
+      B['clav' + k].rotation.x = C['clavX' + k];
+      B['upper' + k].rotation.set(C['upperX' + k], 0, C['upperZ' + k]);
+      B['fore' + k].rotation.x = C['foreX' + k]; B['hand' + k].rotation.x = C['handX' + k];
+    }
+    for (let i = 1; i <= 3; i++) B['tail' + i].rotation.set(C['tailX' + i], 0, C['tailZ' + i]);
   }
   visual(dt, t) {
     const alive = this.alive;
@@ -5240,10 +5281,12 @@ class Unit {
     if (alive) {
       this.deathT = 0;
       this.animate(dt, t);
-      const hover = 0.32 + Math.sin(t * 2.0 + this.bob) * 0.07 * (1 - Math.min(this.spdS, 1)) + this.bounce - (this.post > 0 ? 0.06 * this.post / 0.38 : 0);
-      m.position.set(Math.cos(this.facing) * this.sway, hover, -Math.sin(this.facing) * this.sway);
+      // float: slow bob at rest, a gentle double bob per stride while gliding, no footfalls
+      const w = Math.min(this.spdS, 1);
+      const hover = 0.32 + Math.sin(t * 1.8 + this.bob) * 0.06 * (1 - w) + Math.sin(this.walkPhase * 2) * 0.025 * w - this.dip;
+      m.position.set(0, hover, 0);
       m.rotation.order = 'YXZ';
-      m.rotation.set(this.lean, this.facing + this.twist, this.roll);
+      m.rotation.set(0, this.facing, this.bank); // bank into turns
       m.scale.setScalar(1 + this.flash * 0.06);
       this.ring.material.opacity = this.prot > 0 ? 0.3 + 0.3 * Math.sin(t * 20) : 0.6;
       this.ring.material.color.set(this.buffs.dd > 0 ? '#4a8aff' : this.color);
@@ -5672,13 +5715,14 @@ function frame(now) {
   } else if (!player) {
     camLook.set(0, 0, 0); camPos.set(Math.sin(time * 0.1) * 30, 22, Math.cos(time * 0.1) * 30);
   }
+  if (devCam) { camPos.copy(devCam.pos); camLook.copy(devCam.look); }
   shake = Math.max(0, shake - dt * 1.2);
   camera.position.copy(camPos); if (shake > 0) camera.position.add(tmpCam.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(shake));
   camera.lookAt(camLook);
   if (state !== 'menu' || player) updateHud(dt);
   renderer.render(scene, camera);
 }
-let edgePointsCache = [];
+let edgePointsCache = [], devCam = null; // devCam: fixed camera for dev tools ({pos, look} Vector3s)
 function prewarm() { // compile every effect shader now, not on the first raze/rune
   const hidden = [];
   const show = o => { if (!o.visible) { o.visible = true; hidden.push(o); } };
@@ -5697,6 +5741,8 @@ async function boot() {
     heroTemplate = fitModel(hero, HERO_H);
     // low-poly shadow caster, in the same model space as the hero mesh
     heroShadow && heroShadow.traverse(o => { if (o.isMesh) heroTemplate.userData.shadowGeo = o.geometry; });
+    heroTemplate.traverse(o => { if (o.isMesh) skinHero(o.geometry); });
+    if (heroTemplate.userData.shadowGeo) skinHero(heroTemplate.userData.shadowGeo);
   }
   kinds.forEach((k, i) => { if (props[i]) PROP_TEMPLATES[k] = props[i]; });
   buildMap($('optMap').value);
@@ -5711,6 +5757,7 @@ requestAnimationFrame(frame);
 boot();
 window.__game = { renderer, get fogOn() { return fogOn; },  get units() { return units; }, get state() { return state; }, get map() { return MAP; }, get rune() { return rune; }, CFG, buildMap: id => buildMap(id),
   get quality() { return { rung, autoQuality, heroShadows, fxDensity, pixelRatio: renderer.getPixelRatio() }; },
+  set devCam(c) { devCam = c; },
   forceQuality(pr) { autoQuality = false; rung = 0; baseDpr = pr; applyRung(); } }; // for dev/bench.js
 })();
 
