@@ -19,6 +19,7 @@
     <div class="slot" data-slot="0"><div class="cd"></div><b>Z</b><i>Near</i><span class="t"></span></div>
     <div class="slot" data-slot="1"><div class="cd"></div><b>X</b><i>Mid</i><span class="t"></span></div>
     <div class="slot" data-slot="2"><div class="cd"></div><b>C</b><i>Far</i><span class="t"></span></div>
+    <div class="slot ult" data-slot="3" title="Requiem of Souls: one line of shadow per 2 souls"><div class="cd"></div><b>R</b><i>1 lines</i><span class="t"></span></div>
     <div id="hpWrap"><div id="hpFill"></div><span id="hpText"></span></div>
     <div id="invWrap">
       <div id="gold" title="Gold: kills, assists and 2 per second"><i></i><span id="goldText">0</span><button id="shopBtn" title="Shop (B)">SHOP <b>B</b></button></div>
@@ -28,8 +29,10 @@
   <div id="err"></div>
   <div id="shopHint">You are at the Soul Merchant: press <b>B</b> to trade</div>
   <div id="respawn"></div>
-  <div id="help">Right-click: move &nbsp;·&nbsp; Z / X / C: near / mid / far raze (fires the way you face) &nbsp;·&nbsp; 1–6: items &nbsp;·&nbsp; B: shop &nbsp;·&nbsp; S: stop &nbsp;·&nbsp; M: mute &nbsp;·&nbsp; Wheel: zoom &nbsp;·&nbsp; Esc: menu &nbsp;·&nbsp; Grab runes for Haste, Double Damage or Regeneration</div>
+  <div id="help">Right-click: move &nbsp;·&nbsp; Z / X / C: near / mid / far raze (fires the way you face) &nbsp;·&nbsp; R: Requiem of Souls &nbsp;·&nbsp; 1–6: items &nbsp;·&nbsp; B: shop &nbsp;·&nbsp; S: stop &nbsp;·&nbsp; M: mute &nbsp;·&nbsp; Wheel: zoom &nbsp;·&nbsp; Esc: menu &nbsp;·&nbsp; Grab runes for Haste, Double Damage or Regeneration</div>
 </div>
+<div id="flash"></div>
+<div id="letterbox"><i></i><i></i></div>
 <div id="labels"></div>
 <div id="shop" class="hidden">
   <div class="shop-head"><span class="shop-title">SOUL MERCHANT</span><span class="shop-gold"><i></i><span id="shopGold">0</span></span><button id="shopClose" title="Close (B / Esc)">&times;</button></div>
@@ -49,6 +52,7 @@
     <div class="row"><label>Kills to win</label><select id="optKills"><option>10</option><option selected>20</option><option>30</option></select></div>
     <div class="row"><label>Movement</label><select id="optMove"><option value="mouse" selected>Right-click (classic)</option><option value="wasd">WASD</option></select></div>
     <div class="row"><label>Sound volume</label><input id="optVol" type="range" min="0" max="100" value="70"></div>
+    <div class="row"><label>Camera shake</label><select id="optShake"><option value="on" selected>Subtle</option><option value="off">Off</option></select></div>
     <div class="row"><label>Graphics</label><select id="optGfx"><option value="high" selected>High</option><option value="low">Performance</option></select></div>
     <button id="play">PLAY</button>
     <p class="keys">Razes fire in the direction your hero faces, just like the original.<br>Every hit gives a soul; souls make your razes hit harder. Dying costs half of them.<br>Earn gold, press <b>B</b> to shop, use items with <b>1–6</b>.</p>
@@ -56,7 +60,7 @@
     <p class="credits">Announcer voice: "Announcer kill sounds" by TripleSnail, recorded by Antti Saari — CC-BY 3.0 (opengameart.org)</p>
   </div>
 </div>
-<div id="end" class="overlay hidden"><div class="panel"><h1 id="endTitle"></h1><div id="endTable"></div><button id="again">PLAY AGAIN</button></div></div>
+<div id="end" class="overlay hidden"><div class="panel end-panel"><h1 id="endTitle"></h1><p id="endSub"></p><div id="endTable"></div><button id="again">PLAY AGAIN</button></div></div>
 
 <script src="lib/three.min.js"></script>
 <script src="lib/GLTFLoader.js"></script>

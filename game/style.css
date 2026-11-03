@@ -45,7 +45,9 @@ button:hover { filter: brightness(1.2); }
 .ulabel { position: absolute; transform: translate(-50%, -100%); text-align: center; font-size: 12px; text-shadow: 0 1px 2px #000, 0 0 3px #000; white-space: nowrap; }
 .ulabel .hb { width: 64px; height: 6px; margin: 2px auto 0; background: #000c; border: 1px solid #000; }
 .ulabel .hb div { height: 100%; background: #4adf4a; }
-.dmg { position: absolute; transform: translate(-50%, -50%); font-weight: bold; font-size: 18px; color: #ffb04a; text-shadow: 0 0 6px #ff2000, 0 2px 0 #000; }
+.dmg { position: absolute; transform: translate(-50%, -50%); font-weight: bold; font-size: 18px; color: #ffb04a; text-shadow: 0 0 6px #ff2000, 0 2px 0 #000; animation: dmgpop .28s ease-out; }
+.dmg.big { font-size: 27px; text-shadow: 0 0 10px #ff2000, 0 0 2px #fff, 0 3px 0 #000; }
+@keyframes dmgpop { 0% { transform: translate(-50%, -50%) scale(1.9); } 60% { transform: translate(-50%, -50%) scale(.92); } 100% { transform: translate(-50%, -50%) scale(1); } }
 #endTable .r { display: flex; justify-content: space-between; padding: 4px 6px; border-bottom: 1px solid #3a100a; }
 @keyframes fadein { from { opacity: 0; transform: translateX(-10px); } }
 
@@ -100,3 +102,26 @@ input[type=range] { width: 190px; accent-color: #d8340a; }
 #shop.far .shop-head::after { content: 'Walk up to a Soul Merchant to buy'; position: absolute; left: 0; right: 0; top: 44px; padding: 4px; text-align: center; font-size: 12px; font-weight: bold; color: #ffcf6a; background: #2a0a04e8; border-bottom: 1px solid #6a2a10; z-index: 2; }
 #shop { position: fixed; }
 .shop-head { position: relative; }
+
+/* ---------------------------------------------------------------- game feel (stage 4) */
+#flash { position: fixed; inset: 0; pointer-events: none; z-index: 6; opacity: 0; --c: #f00; background: radial-gradient(ellipse at center, transparent 35%, var(--c) 100%); mix-blend-mode: screen; }
+canvas.dead { filter: grayscale(.85) brightness(.7) contrast(1.05); transition: filter .6s; }
+canvas { transition: filter .4s; }
+#letterbox i { position: fixed; left: 0; right: 0; height: 0; background: #000; z-index: 7; transition: height .5s ease; pointer-events: none; }
+#letterbox i:first-child { top: 0; } #letterbox i:last-child { bottom: 0; }
+#letterbox.on i { height: 11vh; }
+.slot.ult { border-color: #b01a0a; background: radial-gradient(circle at 50% 65%, #ff2a10, #4a0004 58%, #0a0002); box-shadow: 0 0 16px #ff1a0070; }
+.slot.ult.locked { filter: grayscale(.7) brightness(.6); }
+
+/* ---------------------------------------------------------------- end screen */
+.end-panel { width: min(860px, 94vw); }
+#endTitle.win { color: #ffcf4a; text-shadow: 0 0 22px #ff9a2a; } #endTitle.loss { color: #c8c0c0; text-shadow: 0 0 18px #600; }
+#endSub { margin: 0 0 14px; color: #a08478; }
+#endTable table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#endTable th { color: #a08478; font-weight: normal; text-align: right; padding: 4px 6px; border-bottom: 1px solid #4a140c; }
+#endTable th:first-child, #endTable td:first-child { text-align: left; }
+#endTable td { text-align: right; padding: 5px 6px; border-bottom: 1px solid #2a0c08; white-space: nowrap; }
+#endTable tr.me td { background: #3a120a80; font-weight: bold; }
+#endTable .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+#endTable em { margin-left: 6px; padding: 1px 5px; font-size: 10px; font-style: normal; color: #1a0c00; background: linear-gradient(#ffe08a, #c8902a); border-radius: 2px; }
+#endTable .it img { width: 22px; height: 22px; margin-left: 2px; border: 1px solid #000; vertical-align: middle; }

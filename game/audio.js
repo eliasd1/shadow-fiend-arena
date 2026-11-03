@@ -245,6 +245,22 @@ const SOUNDS = {
     thud(out, t, 240, 0.1, 0.5); thud(out, t, 70, 0.25, 0.5);
     for (const f of [196, 207.6]) { const o = osc('sine', t + 0.05, 1.2, f), g = gain(); env(g.gain, t + 0.05, 0.2, 0.05, 1.2); chain(o, g, out); }
   },
+  // Requiem, gathering: a choir and a storm of whispers rising for one second
+  requiemCharge(out, t) {
+    choir(out, t, 1.1, 49, 0.22); whisper(out, t, 1.0, 0.14);
+    const s = osc('sawtooth', t, 1.0, 36, 72), sg = gain(); g2ramp(sg.gain, t, 1.0, 0.35); chain(s, filt('lowpass', 300, 4), sg, out);
+    const n = noise(t, 1.0), bp = filt('bandpass', 300, 2), ng = gain(); bp.frequency.setValueAtTime(200, t); bp.frequency.exponentialRampToValueAtTime(2400, t + 1.0); g2ramp(ng.gain, t, 1.0, 0.3); chain(n, bp, ng, out);
+  },
+  // Requiem, released: the ground bursts, souls scream outward
+  requiem(out, t) {
+    const sub = osc('sine', t, 1.6, 90, 22), sg = gain(); env(sg.gain, t, 0.005, 1.1, 1.6); chain(sub, sg, out);
+    const n = noise(t, 1.4), ws = ctx.createWaveShaper(), lp = filt('lowpass', 6000, 0.7), g = gain(); ws.curve = distCurve; lp.frequency.setValueAtTime(6000, t); lp.frequency.exponentialRampToValueAtTime(180, t + 1.3); env(g.gain, t, 0.004, 0.9, 1.4); chain(n, ws, lp, g, out);
+    for (let i = 0; i < 5; i++) { // screaming souls: formant sweeps falling away
+      const st = t + 0.03 + i * 0.06, o = osc('sawtooth', st, 0.9, rnd(300, 480), rnd(120, 180)), b = filt('bandpass', rnd(900, 1400), 6), og = gain();
+      env(og.gain, st, 0.03, 0.09, 0.9); chain(o, b, og, out);
+    }
+    metal(out, t, 41, [1, 2.32, 4.25, 6.63], 2.2, 0.25);
+  },
   // Soul Wand: the captured souls whisper and rush out
   wand(out, t) { whisper(out, t, 0.7, 0.12); const s = osc('sawtooth', t, 0.6, 55, 110), g = gain(); env(g.gain, t, 0.05, 0.12, 0.6); chain(s, filt('lowpass', 400, 3), g, out); },
 };
@@ -252,6 +268,7 @@ const SOUNDS = {
 function metal(out, t, f0, ratios, decay, amp) { // struck metal: inharmonic partials, higher ones die faster
   ratios.forEach((r, i) => { const o = osc('sine', t, decay * 1.2, f0 * r * rnd(0.995, 1.005)), g = gain(); env(g.gain, t, 0.001, amp / (1 + i * 0.6), decay / (1 + i * 0.35)); chain(o, g, out); });
 }
+function g2ramp(param, t, dur, peak) { param.setValueAtTime(0.0001, t); param.exponentialRampToValueAtTime(peak, t + dur * 0.95); param.linearRampToValueAtTime(0, t + dur); }
 function thud(out, t, f, dur, amp) { // a dull body impact: low-passed noise plus a dropping sine
   const n = noise(t, dur), g = gain(); env(g.gain, t, 0.002, amp, dur); chain(n, filt('lowpass', f * 3), g, out);
   const o = osc('sine', t, dur, f, f * 0.55), og = gain(); env(og.gain, t, 0.002, amp * 0.8, dur); chain(o, og, out);
@@ -268,7 +285,7 @@ function whisper(out, t, dur, amp) { // breathy formant noise with a tremble, li
     chain(l, lg); lg.connect(g.gain); chain(n, b, g, out);
   }
 }
-const WET = { coin: 0.15, buy: 0.2, shopOpen: 0.1, error: 0, blink: 0.4, cyclone: 0.5, avatar: 0.7, veil: 0.6, salve: 0.4, ward: 0.3, wand: 0.5, rune: 0.6, cast: 0.25, raze: 0.55, hit: 0.3, death: 0.6, soul: 0.35, kill: 0.6, respawn: 0.6, heartbeat: 0.05, stinger: 0.7 };
+const WET = { requiemCharge: 0.6, requiem: 0.8, coin: 0.15, buy: 0.2, shopOpen: 0.1, error: 0, blink: 0.4, cyclone: 0.5, avatar: 0.7, veil: 0.6, salve: 0.4, ward: 0.3, wand: 0.5, rune: 0.6, cast: 0.25, raze: 0.55, hit: 0.3, death: 0.6, soul: 0.35, kill: 0.6, respawn: 0.6, heartbeat: 0.05, stinger: 0.7 };
 
 function play(kind, opts = {}) {
   if (!ctx || document.hidden) return;

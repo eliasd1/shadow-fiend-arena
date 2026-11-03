@@ -10,6 +10,8 @@ const CFG = {
   baseDmg: 170, soulDmg: 9, maxSouls: 30,
   respawn: 3, spawnProt: 1.3, unitR: 0.45, step: 1 / 60,
   runeEvery: 30, firstRune: 8,
+  // Requiem of Souls: one line per 2 souls, each hits a hero once
+  ultCast: 1.0, ultCd: 35, ultMinSouls: 2, ultDmg: 70, ultRange: 10, ultSpeed: 17, ultWidth: 0.55, ultSlow: 0.3, ultSlowDur: 2,
 };
 const DIFF = {
   // items: chance to use an item when it makes sense; plan: buying order (wards only matter with fog on)
@@ -124,7 +126,7 @@ document.body.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x160504, 0.016);
 const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 260);
-let zoom = 1;
+let zoom = 1, zoomTarget = 1;
 
 // Quality ladder used by the automatic resolution system. Slow frames step down one rung at a time
 // (hero shadows, then effect density, then pixel density); smooth frames step back up.
@@ -145,11 +147,11 @@ function applyRung() {
   if (Math.abs(renderer.getPixelRatio() - pr) > 1e-3) { renderer.setPixelRatio(pr); resize(); }
 }
 function setQuality(q) {
-  baseDpr = Math.min(devicePixelRatio, q === 'low' ? 1 : 2); // the quality ladder lowers it if frames get slow
-  rung = minRung = q === 'low' ? 1 : 0; autoQuality = true;
+  baseDpr = Math.min(devicePixelRatio, q === 'low' ? 1 : 1.5); // the quality ladder lowers it if frames get slow
+  rung = minRung = q === 'low' ? 1 : 0; autoQuality = true; dropsFrom = {};
   applyRung(); resize();
 }
-let perfAcc = 0, perfN = 0, perfGood = 0, lastDprChange = 0;
+let perfAcc = 0, perfN = 0, perfGood = 0, lastDprChange = 0, dropsFrom = {};
 function adaptResolution(dt) {
   if (!autoQuality) return;
   perfAcc += dt; perfN++;
@@ -158,10 +160,12 @@ function adaptResolution(dt) {
   const changesDpr = r => LADDER[r].dpr !== LADDER[rung].dpr;
   if (avg > 1 / 50 && rung < LADDER.length - 1) {
     if (changesDpr(rung + 1) && now - lastDprChange < 2500) return;
+    // a rung we had to leave twice is too heavy for this machine: stay below it from now on
+    dropsFrom[rung] = (dropsFrom[rung] || 0) + 1; if (dropsFrom[rung] >= 2) minRung = Math.max(minRung, rung + 1);
     rung++; perfGood = 0; if (changesDpr(rung - 1)) lastDprChange = now; applyRung();
   } else if (avg < 1 / 58) {
     // climb back slowly, and never into a rung that was just too slow
-    if (++perfGood >= 5 && rung > minRung && !(changesDpr(rung - 1) && now - lastDprChange < 4000)) {
+    if (++perfGood >= 8 && rung > minRung && !(changesDpr(rung - 1) && now - lastDprChange < 4000)) {
       rung--; perfGood = 0; if (changesDpr(rung + 1)) lastDprChange = now; applyRung();
     }
   } else perfGood = 0;
@@ -521,6 +525,17 @@ function makeBones() {
   bones.forEach(b => b.position.copy(b.parent && b.parent.isBone ? b.userData.at.clone().sub(b.parent.userData.at) : b.userData.at));
   return bones;
 }
+// death dissolve: texels burn away below a noise threshold, with a glowing ember edge
+function addDissolve(mat) {
+  mat.userData.dis = { value: 0 };
+  mat.onBeforeCompile = function (sh) {
+    sh.uniforms.uDis = this.userData.dis;
+    sh.fragmentShader = 'uniform float uDis;\nfloat dsN(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);float a=fract(sin(dot(i,vec2(127.1,311.7)))*43758.5),b=fract(sin(dot(i+vec2(1,0),vec2(127.1,311.7)))*43758.5),c=fract(sin(dot(i+vec2(0,1),vec2(127.1,311.7)))*43758.5),d=fract(sin(dot(i+vec2(1,1),vec2(127.1,311.7)))*43758.5);return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);}\n' +
+      sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\nfloat dsv = dsN(vUv * 22.0) * 0.6 + dsN(vUv * 61.0) * 0.4; if (uDis > 0.0 && dsv < uDis * 1.05) discard;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nif (uDis > 0.0) totalEmissiveRadiance += vec3(1.0, 0.35, 0.05) * (1.0 - smoothstep(0.0, 0.07, dsv - uDis * 1.05)) * 5.0;');
+  };
+  mat.customProgramCacheKey = () => 'sfa-dissolve';
+}
 function fallbackHero() {
   const g = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: 0x1a0606, emissive: 0x7a1004, emissiveIntensity: 0.6, roughness: 0.6, flatShading: true });
   const add = (geo, x, y, z, rx = 0, rz = 0) => { const k = new THREE.Mesh(geo, m); k.position.set(x, y, z); k.rotation.set(rx, 0, rz); g.add(k); };
@@ -548,8 +563,9 @@ function cloneHero() {
   let bones = null;
   c.traverse(o => {
     if (!o.isMesh || o.userData.shadow) return;
-    o.material = o.material.clone();
+    o.material = o.material.clone(); // (clone() drops onBeforeCompile, so the dissolve is added per unit)
     o.material.userData.base = o.material.color.clone();
+    if (heroTemplate) addDissolve(o.material);
     mats.push(o.material);
     if (!heroTemplate) return;
     // swap the static mesh for a skinned one with this unit's own skeleton
@@ -856,9 +872,10 @@ class Unit {
     // items and gold
     this.gold = GOLD.start; this.items = [null, null, null, null, null, null]; this.maxHp = CFG.hp;
     this.mod = { spd: 0, hp: 0, cdMul: 1, scepter: false };
+    this.ult = null; this.ultCd = 0; this.slowT = 0;
     this.cyclone = 0; this.immune = 0; this.invis = 0; this.veilBonus = false; this.salve = 0; this.lockT = -99; this.avatarUses = 0;
     this.hitBy = new Map(); this.marks = new Map(); this.wards = [];
-    this.stats = { dmg: 0, hits: 0, casts: 0, goldEarned: 0, assists: 0, used: {} };
+    this.stats = { dmg: 0, hits: 0, casts: 0, razesHit: 0, goldEarned: 0, assists: 0, used: {} };
     this.lastHitBy = null; this.lastHitT = -99; this.multi = 0; this.multiT = 0;
     this.flash = 0; this.deathT = 0; this.bob = rnd(0, 6); this.walkPhase = 0; this.flinch = 0;
     this.poseT = {}; this.springs = {}; this.velS = new THREE.Vector2(); this.velLag = { x: 0, y: 0, vx: 0, vy: 0 }; this.accF = 0; this.accR = 0; this.spdS = 0; this.dip = 0; this.bankS = 0;
@@ -881,13 +898,22 @@ class Unit {
     this.ring.material.dispose(); this.blob.material.dispose(); this.tele.material.dispose();
     for (const w of this.wards) removeWard(w);
   }
-  get speed() { let s = CFG.speed * (this.buffs.haste > 0 ? 1.6 : 1) * (1 + this.mod.spd + (this.invis > 0 ? ITEMS.blade.speed : 0)); const h = hazardAt(this.pos.x, this.pos.z); if (h && h.type === 'water') s *= 0.85; return s; }
+  get speed() { let s = CFG.speed * (this.buffs.haste > 0 ? 1.6 : 1) * (1 + this.mod.spd + (this.invis > 0 ? ITEMS.blade.speed : 0)) * (this.slowT > 0 ? 1 - CFG.ultSlow : 1); const h = hazardAt(this.pos.x, this.pos.z); if (h && h.type === 'water') s *= 0.85; return s; }
   moveTo(x, z) { if (!this.alive || this.cast) return; this.moveTarget = new THREE.Vector2(x, z); this.faceAngle = null; }
   razeCenter(slot, facing = this.facing) {
     const d = CFG.razeDist[slot]; return new THREE.Vector2(this.pos.x + Math.sin(facing) * d, this.pos.z + Math.cos(facing) * d);
   }
+  castUlt() { // Requiem of Souls: a one-second channel, then the souls burst out in every direction
+    if (!this.alive || this.cast || this.ult || this.cyclone > 0) return 'Can\u2019t do that now';
+    if (this.ultCd > 0) return 'Requiem of Souls is on cooldown';
+    if (this.souls < CFG.ultMinSouls) return 'Requiem needs at least ' + CFG.ultMinSouls + ' souls';
+    this.ult = { t: CFG.ultCast }; this.moveTarget = null; this.faceAngle = null; this.stats.ults = (this.stats.ults || 0) + 1;
+    if (this.invis > 0) this.invis = 0;
+    sfx('requiemCharge', this.isPlayer ? 1 : earVol(this.pos) * 0.8, this.pos);
+    return true;
+  }
   castRaze(slot) {
-    if (!this.alive || this.cast || this.cd[slot] > 0 || this.cyclone > 0) return false;
+    if (!this.alive || this.cast || this.ult || this.cd[slot] > 0 || this.cyclone > 0) return false;
     this.cast = { slot, t: CFG.castTime }; this.moveTarget = null; this.faceAngle = null;
     if (this.invis > 0) { this.invis = 0; this.veilBonus = true; } // a raze from the veil reveals you, with bonus damage
     this.stats.casts++;
@@ -917,6 +943,7 @@ class Unit {
   step(dt, input) {
     this.prev.copy(this.pos);
     for (let s = 0; s < 3; s++) this.cd[s] = Math.max(0, this.cd[s] - dt);
+    this.ultCd = Math.max(0, this.ultCd - dt); this.slowT = Math.max(0, this.slowT - dt);
     for (const k in this.buffs) this.buffs[k] = Math.max(0, this.buffs[k] - dt);
     if (!this.alive) { this.respawnT -= dt; if (this.respawnT <= 0) respawn(this); return; }
     this.prot = Math.max(0, this.prot - dt); this.post = Math.max(0, this.post - dt);
@@ -929,7 +956,10 @@ class Unit {
       this.cyclone -= dt; this.slide.set(0, 0); this.vel.set(0, 0, 0); this.moveTarget = null; return;
     }
     let dir = null;
-    if (this.cast) {
+    if (this.ult) {
+      this.ult.t -= dt;
+      if (this.ult.t <= 0) { this.ult = null; this.ultCd = CFG.ultCd; this.post = 0.5; releaseRequiem(this); }
+    } else if (this.cast) {
       this.cast.t -= dt;
       if (this.cast.t <= 0) { const s = this.cast.slot; this.cast = null; this.post = 0.38; this.cd[s] = CFG.razeCd * this.mod.cdMul; this.tele.visible = false; resolveRaze(this, s); }
     } else {
@@ -1036,6 +1066,12 @@ class Unit {
     } else if (this.post > 0) { // hold the slam a beat, then let the springs carry it back into the glide
       if (this.post > 0.2) { for (const [s, kk] of [[1, 'R'], [-1, 'L']]) slam(1, kk, s); T.chestX = 0.5; T.pelvisX = 0.35; T.neckX = -0.3; T.headX = 0.1; snap = 2.5; dip = 0.1; }
     }
+    if (this.ult) {
+      const e = smooth(0, 1, 1 - this.ult.t / CFG.ultCast); snap = 2.5;
+      for (const [s, kk] of [[1, 'R'], [-1, 'L']]) { T['upperX' + kk] = -0.9 * e; T['upperZ' + kk] = s * (0.3 + 1.15 * e); T['foreX' + kk] = -0.5 * e; T['handX' + kk] = -0.4 * e; }
+      T.chestX = 0.1 - 0.4 * e; T.pelvisX = 0.05 - 0.1 * e; T.neckX = -0.1 - 0.15 * e; T.headX = -0.25 * e; T.headY = 0;
+      dip = -0.25 * e; // rises as it gathers the souls
+    }
     if (this.flinch > 0) { // a hit knocks the springs, they recover on their own
       const S = this.springs, kick = this.flinch * 9;
       for (const [p, v] of [['chestX', -kick], ['neckX', kick * 0.6], ['upperZR', kick], ['upperZL', -kick], ['pelvisX', -kick * 0.5]]) if (S[p]) S[p].v += v;
@@ -1080,6 +1116,7 @@ class Unit {
       const n = Math.ceil(dt * f * 8), h = dt / n; for (let i = 0; i < n; i++) { Y.v += (om * om * (tgt - Y.x) - 2 * 0.8 * om * Y.v) * h; Y.x += Y.v * h; } }
     m.rotation.y = this.yawV.x;
     if (alive) {
+      if (this.deathT) for (const mat of m.userData.mats) if (mat.userData.dis) mat.userData.dis.value = 0;
       this.deathT = 0;
       this.animate(dt, t);
       // float: slow bob at rest, a gentle double bob per stride while gliding, no footfalls
@@ -1112,6 +1149,7 @@ class Unit {
       if (sv) for (let n = emitN(this.souls / CFG.maxSouls * 48, dt); n > 0; n--) { const a = rnd(0, 7); particles.spawn(this.pos.x + Math.cos(a) * 0.8, rnd(0.6, 2), this.pos.z + Math.sin(a) * 0.8, 0, rnd(0.3, 1), 0, 0.9, 0.35, 0.05, SOUL0, [0.5, 0, 0.1], 0.3, 0); }
       if (sv && this.buffs.haste > 0) for (let n = emitN(36, dt); n > 0; n--) particles.spawn(this.pos.x, rnd(0.3, 1.8), this.pos.z, -this.vel.x * 0.3, 0.2, -this.vel.z * 0.3, 0.4, 0.5, 0.1, [1, 0.25, 0.15], [0.3, 0, 0], 0, 1);
       if (sv && this.buffs.regen > 0) for (let n = emitN(30, dt); n > 0; n--) particles.spawn(this.pos.x + rnd(-0.6, 0.6), 0.2, this.pos.z + rnd(-0.6, 0.6), 0, rnd(1, 2), 0, 0.8, 0.4, 0.1, [0.3, 1, 0.4], [0, 0.3, 0.1], 0, 0);
+      if (this.ult && sv) for (let n = emitN(160, dt); n > 0; n--) { const a = rnd(0, 7), r = rnd(2.5, 5); particles.spawn(this.pos.x + Math.cos(a) * r, rnd(0.4, 2.4), this.pos.z + Math.sin(a) * r, -Math.cos(a) * r * 1.6 - Math.sin(a) * 3, rnd(0, 0.8), -Math.sin(a) * r * 1.6 + Math.cos(a) * 3, 0.55, 0.5, 0.1, [1, 0.4, 0.15], [0.4, 0, 0.1], 0, 0.5); }
       if (this.cast) this.tele.visible = sv;
       if (this.cast && sv) { // claws gather shadow-fire during the wind-up
         const k = 1 - this.cast.t / CFG.castTime, rx = fz, rz = -fx;
@@ -1120,8 +1158,10 @@ class Unit {
       }
     } else {
       this.deathT += dt;
-      const k = Math.min(this.deathT / 0.7, 1);
-      m.scale.setScalar(Math.max(0.001, 1 - k)); m.position.y = 0.32 - k * 0.6; m.rotation.y += k * 6;
+      const k = Math.min(this.deathT / 1.1, 1); // the body burns away from the edges, rising, as the souls leave it
+      for (const mat of m.userData.mats) if (mat.userData.dis) mat.userData.dis.value = k;
+      m.position.y = 0.32 + k * 0.5; for (const s of m.userData.shadows) s.visible = false;
+      if (this.seen && k < 1) for (let n = emitN(90 * (1 - k), dt); n > 0; n--) particles.spawn(this.pos.x + rnd(-0.5, 0.5), rnd(0.5, 2.6), this.pos.z + rnd(-0.5, 0.5), rnd(-0.4, 0.4), rnd(1.5, 3.5), rnd(-0.4, 0.4), rnd(0.6, 1.1), 0.45, 0.05, [1, 0.45, 0.12], [0.35, 0, 0.05], 0.5, 0.5);
       this.ring.material.opacity = 0; this.tele.visible = false; if (this.shell) this.shell.visible = false; if (this.funnel) this.funnel.visible = false;
     }
     for (const mat of m.userData.mats) if (mat.userData.base) { mat.color.copy(mat.userData.base).multiplyScalar(1 + this.flash * 3); if (this.immune > 0) mat.color.lerp(GOLD_TINT, 0.35); }
@@ -1151,8 +1191,9 @@ function resolveRaze(u, slot) {
   const c = u.razeCenter(slot), dd = u.buffs.dd > 0;
   razeFx(c.x, c.y, u.souls / CFG.maxSouls, dd);
   sfx('raze', u.isPlayer ? 1 : earVol(new THREE.Vector3(c.x, 0, c.y)), { x: c.x });
-  if (player) { const d = Math.hypot(c.x - player.pos.x, c.y - player.pos.z); shake = Math.max(shake, Math.max(0, 0.38 - d * 0.03)); }
+  if (player && (u === player || Math.hypot(c.x - player.pos.x, c.y - player.pos.z) < CFG.razeR + 1)) addShake(0.12);
   const dmg = (CFG.baseDmg + u.souls * CFG.soulDmg) * (dd ? 2 : 1) + (u.veilBonus ? ITEMS.blade.bonus : 0);
+  const hitsBefore = u.stats.hits;
   u.veilBonus = false;
   for (const o of units) {
     if (o === u || !o.alive || o.prot > 0) continue;
@@ -1166,14 +1207,48 @@ function resolveRaze(u, slot) {
     }
     damage(o, dmg + extra, u);
   }
+  if (u.stats.hits > hitsBefore) u.stats.razesHit = (u.stats.razesHit || 0) + 1;
+  if (u === player && u.stats.hits > hitsBefore) { hitStop(0.06); screenFlash('#ff7a20', 0.18); }
 }
+const requiemLines = [];
+function releaseRequiem(u) {
+  const n = Math.max(1, Math.floor(u.souls / 2)), off = rnd(0, 6.28);
+  for (let i = 0; i < n; i++) { const a = off + i / n * Math.PI * 2; requiemLines.push({ u, x: u.pos.x, z: u.pos.z, dx: Math.sin(a), dz: Math.cos(a), d: 0, hit: new Set() }); }
+  sfx('requiem', u.isPlayer ? 1 : earVol(u.pos), u.pos);
+  addFx(crackPool[crackI++ % crackPool.length], 2.2, 'crack', u.pos.x, u.pos.z, 2.4, 3.2, 1, 0xff3a20);
+  addFx(ringPool[ringI++ % ringPool.length], 0.6, 'ring', u.pos.x, u.pos.z, 0.6, CFG.ultRange * 1.05, 0.9, 0xff2a10);
+  for (let k = 0; k < 120; k++) { const a = rnd(0, 7), sp = rnd(4, 14); particles.spawn(u.pos.x, rnd(0.4, 2.2), u.pos.z, Math.cos(a) * sp, rnd(0.5, 4), Math.sin(a) * sp, rnd(0.3, 0.7), rnd(0.5, 1.1), 0.05, [1, 0.3, 0.1], [0.25, 0, 0.05], -2, 2.5); }
+  for (let k = 0; k < 30; k++) { const a = rnd(0, 7); smoke.spawn(u.pos.x + Math.cos(a), rnd(0.5, 2), u.pos.z + Math.sin(a), Math.cos(a) * 3, rnd(0.5, 2), Math.sin(a) * 3, 1.6, 1.4, 3.6, SMOKE0, SMOKE1, 0, 1); }
+  const fl = flashLights[flashIdx++ % flashLights.length]; fl.l.position.set(u.pos.x, 2, u.pos.z); fl.l.color.set(0xff2a10); fl.t = 0.9;
+  if (player) { const d = Math.hypot(u.pos.x - player.pos.x, u.pos.z - player.pos.z); if (d < CFG.ultRange) addShake(0.2); if (u === player) screenFlash('#ff2a10', 0.35); }
+}
+function updateRequiem(st) {
+  for (let i = requiemLines.length - 1; i >= 0; i--) {
+    const L = requiemLines[i], d0 = L.d; L.d = Math.min(CFG.ultRange, L.d + CFG.ultSpeed * st);
+    const ax = L.x + L.dx * d0, az = L.z + L.dz * d0, bx = L.x + L.dx * L.d, bz = L.z + L.dz * L.d;
+    for (const o of units) {
+      if (o === L.u || !o.alive || o.prot > 0 || L.hit.has(o) || !isEnemy(L.u, o)) continue;
+      if (segDist(o.pos.x, o.pos.z, [ax, az], [bx, bz]) > CFG.unitR + CFG.ultWidth) continue;
+      L.hit.add(o);
+      if (o.immune > 0 || o.cyclone > 0) continue;
+      damage(o, CFG.ultDmg, L.u); o.slowT = CFG.ultSlowDur;
+    }
+    // the soul streak: a hot core with a smoky wake
+    const seen = !player || canSee(player, bx, bz) || L.u === player;
+    if (seen) { particles.spawn(bx, 1.0 + Math.sin(L.d * 1.3) * 0.3, bz, L.dx * 2, rnd(-0.3, 0.6), L.dz * 2, 0.45, 0.9, 0.1, [1, 0.35, 0.15], [0.3, 0, 0.05], 0, 2); if (Math.random() < 0.6) smoke.spawn(bx, 1.0, bz, rnd(-0.3, 0.3), rnd(0.2, 0.8), rnd(-0.3, 0.3), 0.8, 0.7, 1.6, SMOKE0, SMOKE1, 0, 1); }
+    if (L.d >= CFG.ultRange) requiemLines.splice(i, 1);
+  }
+}
+// FFA: everyone else is an enemy; team mode: only the other team
+function isEnemy(a, b) { return a !== b && (a.team === undefined || a.team !== b.team); }
 function damage(o, amt, src) {
   o.hp -= amt; o.flash = 1; o.flinch = 1; o.lastHitBy = src; o.lastHitT = gameTime;
+  if (o === player) { hitStop(0.05); screenFlash('#c00000', Math.min(0.75, 0.3 + amt / o.maxHp)); addShake(0.12); }
   o.hitBy.set(src, gameTime); o.lockT = gameTime; o.salve = 0; // salve breaks, dagger locks
   src.stats.dmg += amt; src.stats.hits++;
   src.souls = Math.min(CFG.maxSouls, src.souls + 1);
   sfx('hit', o.isPlayer || src.isPlayer ? 0.9 : earVol(o.pos) * 0.7, o.pos);
-  if (o.seen !== false || src === player) floatText(o.pos, Math.round(amt), src === player ? '#ffd04a' : o === player ? '#ff5a5a' : '#ffb04a');
+  if (o.seen !== false || src === player) floatText(o.pos, Math.round(amt), src === player ? '#ffd04a' : o === player ? '#ff5a5a' : '#ffb04a', amt >= 300 ? 'big' : '');
   for (let i = 0; i < 16; i++) particles.spawn(o.pos.x, 1.2, o.pos.z, rnd(-3, 3), rnd(1, 4), rnd(-3, 3), 0.5, 0.5, 0.1, [1, 0.3, 0.2], [0.3, 0, 0], -6, 2);
   if (o.hp <= 0) kill(o, src, false);
 }
@@ -1181,7 +1256,7 @@ function kill(o, src, env) {
   if (!o.alive) return;
   o.alive = false; o.hp = 0; o.respawnT = CFG.respawn; o.deaths++; o.cast = null; o.moveTarget = null; o.tele.visible = false;
   for (const k in o.buffs) o.buffs[k] = 0;
-  o.invis = o.cyclone = o.immune = o.salve = 0; o.veilBonus = false; o.marks.clear();
+  o.invis = o.cyclone = o.immune = o.salve = o.slowT = 0; o.ult = null; o.veilBonus = false; o.marks.clear();
   // gold: bounty grows with the victim's streak; everyone else who hurt them recently gets an assist
   if (src && src !== o) {
     payGold(src, GOLD.kill + GOLD.perStreak * o.streak + (firstBlood ? 0 : GOLD.firstBlood), o.pos);
@@ -1197,7 +1272,7 @@ function kill(o, src, env) {
   if (src && src !== o) {
     src.kills++; src.streak++; src.souls = Math.min(CFG.maxSouls, src.souls + 4);
     soulOrbs(o.pos, src, 6 + Math.min(lost, 10));
-    if (src.isPlayer) sfx('kill', 0.9);
+    if (src.isPlayer) { sfx('kill', 0.9); hitStop(0.13); screenFlash('#ffd0a0', 0.4); }
     msg = `<b style="color:${src.color}">${src.name}</b> ${env ? 'drove' : 'razed'} <b style="color:${o.color}">${o.name}</b>${env ? ' ' + how : ''}`;
     if (!firstBlood) { firstBlood = true; announce('FIRST BLOOD', `${src.name} has drawn first blood!`, 'firstblood'); }
     else {
@@ -1208,7 +1283,7 @@ function kill(o, src, env) {
     if (prevStreak >= 3) killfeed(`<b style="color:${src.color}">${src.name}</b> ended ${o.name}'s spree`);
   } else msg = `<b style="color:${o.color}">${o.name}</b> fell ${how}`;
   killfeed(msg);
-  if (src && src.kills >= settings.kills) endGame(src);
+  if (src && src.kills >= settings.kills && state === 'play') endGame(src, o);
 }
 function freeSpot(margin) {
   for (let i = 0; i < 200; i++) {
@@ -1237,10 +1312,11 @@ function soulOrbs(from, to, n) {
   for (let i = 0; i < n; i++) orbs.push({ p: new THREE.Vector3(from.x + rnd(-0.5, 0.5), rnd(1, 2), from.z + rnd(-0.5, 0.5)), v: new THREE.Vector3(rnd(-4, 4), rnd(3, 6), rnd(-4, 4)), to, t: 0 });
   if (to.isPlayer) setTimeout(() => sfx('soul', 0.45), 450);
 }
+const orbTmp = new THREE.Vector3();
 function updateOrbs(dt) {
   for (let i = orbs.length - 1; i >= 0; i--) {
     const o = orbs[i]; o.t += dt;
-    const tgt = new THREE.Vector3(o.to.pos.x, 1.3, o.to.pos.z), d = tgt.clone().sub(o.p), dist = d.length();
+    const d = orbTmp.set(o.to.pos.x - o.p.x, 1.3 - o.p.y, o.to.pos.z - o.p.z), dist = d.length();
     o.v.multiplyScalar(Math.max(0, 1 - 2.5 * dt)).add(d.normalize().multiplyScalar(40 * dt * Math.min(1, o.t * 2)));
     o.p.addScaledVector(o.v, dt);
     for (let n = emitN(60, dt); n > 0; n--) particles.spawn(o.p.x, o.p.y, o.p.z, 0, 0, 0, 0.35, 0.7, 0.05, [1, 0.55, 0.3], [0.6, 0, 0.2], 0, 0);
@@ -1363,7 +1439,7 @@ function useItem(u, i, pt, tgt) {
         t = t || u;
       }
       if (t !== u && Math.hypot(t.pos.x - u.pos.x, t.pos.z - u.pos.z) > D.range + 0.5) return 'Target is out of range';
-      t.cyclone = D.dur; t.cast = null; t.post = 0; t.tele.visible = false; t.moveTarget = null; t.salve = 0;
+      t.cyclone = D.dur; t.cast = null; t.ult = null; t.post = 0; t.tele.visible = false; t.moveTarget = null; t.salve = 0;
       sfx('cyclone', u.isPlayer || t.isPlayer ? 0.8 : earVol(t.pos) * 0.6, t.pos); break;
     }
     case 'blade':
@@ -1535,6 +1611,12 @@ class Bot {
       }
       if (td > 12 && u.hp > u.maxHp * 0.6 && u.invis <= 0 && this.ready('blade') && this.use('blade')) return;
     }
+    // Requiem of Souls: when two enemies are close, or one is close enough to finish off
+    if (u.ultCd <= 0 && u.souls >= 10 && Math.random() < D.items) {
+      const lines = Math.floor(u.souls / 2);
+      const close = units.filter(o => isEnemy(u, o) && o.alive && canSeeUnit(u, o) && o.immune <= 0 && o.cyclone <= 0 && Math.hypot(o.pos.x - u.pos.x, o.pos.z - u.pos.z) < 4.5);
+      if (close.length >= 2 || close.some(o => o.hp < lines * CFG.ultDmg * 0.35)) { u.castUlt(); return; }
+    }
     const lead = (CFG.castTime + D.cast) * D.lead;
     const px = t.pos.x + t.vel.x * lead + rnd(-D.aimErr, D.aimErr) * 0.5, pz = t.pos.z + t.vel.z * lead + rnd(-D.aimErr, D.aimErr) * 0.5;
     const dx = px - u.pos.x, dz = pz - u.pos.z, d = Math.hypot(dx, dz) || 0.01, ang = Math.atan2(dx, dz);
@@ -1593,7 +1675,14 @@ renderer.domElement.addEventListener('mousemove', e => {
   cursor = groundPoint(e);
   if (rightDown && state === 'play' && player) { const p = groundPoint(e); if (p) player.moveTo(p.x, p.z); }
 });
-addEventListener('wheel', e => { zoom = Math.max(0.6, Math.min(1.5, zoom + Math.sign(e.deltaY) * 0.08)); });
+// zoom: proportional to the scroll amount so a trackpad's tiny momentum events barely move it; never while over UI
+let wheelLast = 0;
+addEventListener('wheel', e => {
+  if (e.target !== renderer.domElement || e.ctrlKey) return;
+  const now = performance.now(), d = Math.max(-120, Math.min(120, e.deltaMode ? e.deltaY * 40 : e.deltaY));
+  if (Math.abs(d) < 4 || (now - wheelLast < 30 && Math.abs(d) < 15)) return; // momentum tail
+  wheelLast = now; zoomTarget = Math.max(0.6, Math.min(1.5, zoomTarget + d * 0.0012));
+}, { passive: true });
 addEventListener('keydown', e => {
   const k = e.key.toLowerCase(); keys[k] = true;
   if (state !== 'play' || !player || e.repeat) return;
@@ -1601,6 +1690,7 @@ addEventListener('keydown', e => {
   if (slot !== undefined) player.castRaze(slot);
   if (k >= '1' && k <= '6') playerUseItem(+k - 1);
   if (k === 'b') toggleShop();
+  if (k === 'r') { const r = player.castUlt(); if (r !== true) showErr(r); }
   if (k === 's' && settings.move === 'mouse') { player.moveTarget = null; }
   if (k === 'm') { AUD.muted = !AUD.muted; announce('', AUD.muted ? 'Sound muted (M)' : 'Sound on (M)'); }
   if (k === 'escape') { if (shopOpen) toggleShop(false); else pauseToMenu(); }
@@ -1615,8 +1705,8 @@ function wasd() {
 
 // ------------------------------------------------------------------ HUD
 const floats = [];
-function floatText(pos, txt, color) {
-  const el = document.createElement('div'); el.className = 'dmg'; el.textContent = txt; el.style.color = color;
+function floatText(pos, txt, color, cls = '') {
+  const el = document.createElement('div'); el.className = 'dmg ' + cls; el.textContent = txt; el.style.color = color;
   labelsEl.appendChild(el); floats.push({ el, p: new THREE.Vector3(pos.x + rnd(-0.3, 0.3), 2.6, pos.z), t: 0 });
 }
 let annT = 0;
@@ -1724,8 +1814,10 @@ function updateHud(dt) {
   if (annT > 0) { annT -= dt; if (annT <= 0) { $('announce').style.opacity = 0; $('sub-announce').style.opacity = 0; } }
   if (!player) return;
   slots.forEach((el, s) => {
-    const cd = player.cd[s]; el.querySelector('.cd').style.height = (cd / CFG.razeCd * 100) + '%';
-    el.querySelector('.t').textContent = cd > 0.05 ? cd.toFixed(1) : '';
+    const cd = s === 3 ? player.ultCd : player.cd[s], max = s === 3 ? CFG.ultCd : CFG.razeCd * player.mod.cdMul;
+    el.querySelector('.cd').style.height = (Math.min(1, cd / max) * 100) + '%';
+    el.querySelector('.t').textContent = cd > 0.05 ? (s === 3 ? Math.ceil(cd) : cd.toFixed(1)) : '';
+    if (s === 3) { el.querySelector('i').textContent = Math.max(1, Math.floor(player.souls / 2)) + ' lines'; el.classList.toggle('locked', player.souls < CFG.ultMinSouls); }
   });
   $('soulCount').textContent = player.souls;
   updateInv(); if (shopOpen) updateShop();
@@ -1738,6 +1830,7 @@ function updateHud(dt) {
   $('hpFill').style.width = (player.hp / player.maxHp * 100) + '%';
   $('hpText').textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
   $('respawn').textContent = player.alive ? '' : `Respawning in ${Math.max(0, player.respawnT).toFixed(1)}…`;
+  const grey = !player.alive && state === 'play'; if (grey !== renderer.domElement.classList.contains('dead')) renderer.domElement.classList.toggle('dead', grey);
   const bh = Object.keys(RUNES).filter(k => player.buffs[k] > 0).map(k => `<span style="border-color:${RUNES[k].css};color:${RUNES[k].css}">${RUNES[k].name} ${player.buffs[k].toFixed(0)}s</span>`).join('');
   if (bh !== lastBuffs) { $('buffs').innerHTML = bh; lastBuffs = bh; }
   hudT -= dt;
@@ -1779,8 +1872,9 @@ function drawMinimap() {
 // ------------------------------------------------------------------ game flow
 function startGame() {
   AUD.init();
-  settings = { bots: +$('optBots').value, diff: $('optDiff').value, kills: +$('optKills').value, move: $('optMove').value, fog: $('optFog').value, gfx: $('optGfx').value, map: $('optMap').value };
-  units.forEach(u => u.dispose()); units = []; bots = []; orbs.length = 0; firstBlood = false; gameTime = 0;
+  settings = { shake: $('optShake').value, bots: +$('optBots').value, diff: $('optDiff').value, kills: +$('optKills').value, move: $('optMove').value, fog: $('optFog').value, gfx: $('optGfx').value, map: $('optMap').value };
+  units.forEach(u => u.dispose()); units = []; bots = []; orbs.length = 0; requiemLines.length = 0;
+  camFocus = null; slowMo = null; hitStopT = 0; $('letterbox').classList.remove('on'); renderer.domElement.classList.remove('dead'); firstBlood = false; gameTime = 0;
   particles.clear(); smoke.clear(); rune = null; runeMesh.visible = false; runeLight.intensity = 0; runeT = CFG.firstRune;
   buildMap(settings.map);
   setQuality(settings.gfx);
@@ -1798,13 +1892,29 @@ function startGame() {
   toggleShop(false); refreshInv();
   state = 'play';
 }
-function endGame(w) {
-  state = 'end';
-  setTimeout(() => {
-    $('endTitle').textContent = w.isPlayer ? 'VICTORY' : `${w.name.toUpperCase()} WINS`;
-    $('endTable').innerHTML = [...units].sort((a, b) => b.kills - a.kills).map(u => `<div class="r"><span style="color:${u.color}">${u.name}</span><span>${u.kills} kills · ${u.deaths} deaths</span></div>`).join('');
+// the winning kill plays in slow motion with the camera on the victim, then the scoreboard
+function endGame(w, victim) {
+  state = 'end'; toggleShop(false);
+  camFocus = (victim || w).pos.clone(); $('letterbox').classList.add('on');
+  announce(w.isPlayer ? 'VICTORY' : 'DEFEAT', w.isPlayer ? 'You harvested their souls.' : `${w.name} claims the arena.`);
+  slowMo = { scale: 0.22, t: 2.6, done: showEnd };
+  function showEnd() {
+    $('letterbox').classList.remove('on');
+    const list = [...units].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+    const top = (f) => list.reduce((b, u) => f(u) > f(b) ? u : b, list[0]);
+    const acc = u => u.stats.casts ? u.stats.razesHit / u.stats.casts : 0;
+    const awards = new Map(); const give = (u, a) => awards.set(u, (awards.get(u) || []).concat(a));
+    give(top(u => u.kills), 'Soul Reaper'); give(top(u => u.stats.dmg), 'Most Damage'); if (list.some(u => u.stats.casts >= 5)) give(top(u => u.stats.casts >= 5 ? acc(u) : -1), 'Sharpest Aim');
+    const mins = Math.floor(gameTime / 60), secs = Math.floor(gameTime % 60).toString().padStart(2, '0');
+    $('endTitle').textContent = w.isPlayer ? 'VICTORY' : 'DEFEAT';
+    $('endTitle').className = w.isPlayer ? 'win' : 'loss';
+    $('endSub').textContent = `${MAP.name} · first to ${settings.kills} · ${mins}:${secs}`;
+    $('endTable').innerHTML = `<table><tr><th>Hero</th><th>K</th><th>D</th><th>A</th><th>Damage</th><th>Accuracy</th><th>Gold</th><th>Items</th></tr>` +
+      list.map(u => `<tr class="${u.isPlayer ? 'me' : ''}"><td><span class="sw" style="background:${u.color}"></span>${u.name}${(awards.get(u) || []).map(a => `<em>${a}</em>`).join('')}</td>` +
+        `<td>${u.kills}</td><td>${u.deaths}</td><td>${u.stats.assists}</td><td>${Math.round(u.stats.dmg)}</td><td>${Math.round(acc(u) * 100)}%</td><td>${Math.round(u.stats.goldEarned)}</td>` +
+        `<td class="it">${u.items.filter(Boolean).map(i => `<img src="${iconURL(i.id)}" title="${ITEMS[i.id].name}">`).join('')}</td></tr>`).join('') + '</table>';
     $('end').classList.remove('hidden');
-  }, 1200);
+  }
 }
 $('optVol').value = Math.round(AUD.volume * 100);
 $('optVol').oninput = e => { AUD.volume = e.target.value / 100; AUD.muted = false; };
@@ -1825,6 +1935,11 @@ $('optMap').onchange = () => { if (state === 'menu' && !units.length) buildMap($
 
 // ------------------------------------------------------------------ main loop
 let last = performance.now(), acc = 0, time = 0, beatT = 0;
+// ---- game feel: hit-stop (a few frames of near-freeze on impact), slow motion, screen flash, camera kick
+let hitStopT = 0, slowMo = null, flashA = 0;
+function hitStop(sec) { hitStopT = Math.max(hitStopT, sec); }
+function addShake(a) { if (settings.shake !== 'off') shake = Math.max(shake, a); }
+function screenFlash(color, a) { const f = $('flash'); f.style.setProperty('--c', color); flashA = Math.max(flashA, a); }
 const camPos = new THREE.Vector3(0, 30, 30), camLook = new THREE.Vector3(), tmpCam = new THREE.Vector3();
 // one fixed simulation step (60 Hz): bots think, units move, units push each other apart
 function simStep(st) {
@@ -1834,6 +1949,7 @@ function simStep(st) {
     if (!rune) { runeT -= st; if (runeT <= 0) spawnRune(); }
   }
   units.forEach(u => u.step(st, u.isPlayer ? wasd() : null));
+  updateRequiem(st);
   for (let i = 0; i < units.length; i++) for (let j = i + 1; j < units.length; j++) {
     const a = units[i], b = units[j]; if (!a.alive || !b.alive) continue;
     const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz), m = CFG.unitR * 2;
@@ -1842,14 +1958,24 @@ function simStep(st) {
 }
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.1, (now - last) / 1000); last = now; time += dt; timeU.value = time;
+  const rdt = Math.min(0.1, (now - last) / 1000); last = now; // real frame time
+  let ts = 1;
+  if (hitStopT > 0) { hitStopT -= rdt; ts = 0.05; }
+  else if (slowMo) { slowMo.t -= rdt; ts = slowMo.t > 0 ? slowMo.scale : 1; if (slowMo.t <= 0) { const done = slowMo.done; slowMo = null; done && done(); } }
+  const dt = rdt * ts; // game time: everything in the world slows with it
+  const P = window.__sfaProfile, pt = P ? [performance.now()] : null, mark = P ? () => pt.push(performance.now()) : () => {};
+  time += dt; timeU.value = time;
+  flashA = Math.max(0, flashA - rdt * 2.6); $('flash').style.opacity = flashA;
   if (state === 'play' || state === 'end') {
     acc += dt;
     while (acc >= CFG.step) { simStep(CFG.step); acc -= CFG.step; }
   }
+  mark(); // sim
   units.forEach(u => u.visual(dt, time));
+  mark(); // visual
   updateFog(dt);
-  if (state === 'play') adaptResolution(dt);
+  mark(); // fog
+  if (state === 'play') adaptResolution(rdt);
   if (state === 'play' && player && player.alive && player.hp < player.maxHp * 0.3) { beatT -= dt; if (beatT <= 0) { beatT = 0.55 + player.hp / player.maxHp * 1.2; sfx('heartbeat', 0.8); } } else beatT = 0;
   updateOrbs(dt); updateWards(dt);
   if (mapGroup) for (const c of mapGroup.userData.coins || []) c.rotation.y += dt * 2.2;
@@ -1867,7 +1993,9 @@ function frame(now) {
     for (let n = emitN(24, dt); n > 0; n--) { const p = edgePointsCache[Math.random() * edgePointsCache.length | 0]; if (p) smoke.spawn(p[0], -1, p[1], 0, rnd(0.5, 1.2), 0, 3, 2, 4, [0.2, 0.28, 0.38], [0.08, 0.1, 0.14], 0, 0); }
   }
   if (rune) { runeGem.rotation.y += dt * 2; runeGem.position.y = 1.1 + Math.sin(time * 3) * 0.15; runeRing.material.opacity = 0.6 + 0.3 * Math.sin(time * 5); for (let n = emitN(24, dt); n > 0; n--) { const c = new THREE.Color(RUNES[rune.type].color); particles.spawn(rune.x + rnd(-0.4, 0.4), 0.3, rune.z + rnd(-0.4, 0.4), 0, rnd(1, 2), 0, 0.8, 0.35, 0.05, [c.r, c.g, c.b], [0, 0, 0], 0, 0); } }
+  mark(); // ambience, orbs, wards
   particles.update(dt); smoke.update(dt);
+  mark(); // particles
   for (const f of fx) {
     if (!f.mesh.visible) continue;
     f.t += dt; const k = Math.min(f.t / f.dur, 1);
@@ -1887,26 +2015,44 @@ function frame(now) {
   glowLight.intensity = (MAP.theme === 'molten' ? 0.8 : 0.35) + Math.sin(time * 1.7) * 0.1;
   // camera
   if (player && state !== 'menu') {
-    camLook.lerp(tmpCam.set(player.pos.x, 0, player.pos.z), 1 - Math.exp(-dt * 6));
-    camPos.set(camLook.x, 16 * zoom, camLook.z + 11 * zoom);
+    zoom += (zoomTarget - zoom) * (1 - Math.exp(-rdt * 10));
+    const f = camFocus || player.pos, z = camFocus ? zoom * 0.62 : zoom; // camFocus: the final-kill cam
+    camLook.lerp(tmpCam.set(f.x, 0, f.z), 1 - Math.exp(-rdt * (camFocus ? 3 : 14)));
+    camPos.lerp(tmpCam.set(camLook.x, 16 * z, camLook.z + 11 * z), camFocus ? 1 - Math.exp(-rdt * 3) : 1);
   } else if (!player) {
     camLook.set(0, 0, 0); camPos.set(Math.sin(time * 0.1) * 30, 22, Math.cos(time * 0.1) * 30);
   }
   if (devCam) { camPos.copy(devCam.pos); camLook.copy(devCam.look); }
-  shake = Math.max(0, shake - dt * 1.2);
+  shake = Math.max(0, shake - rdt * 1.5);
   camera.position.copy(camPos); if (shake > 0) camera.position.add(tmpCam.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).multiplyScalar(shake));
   camera.lookAt(camLook);
-  if (state !== 'menu' || player) updateHud(dt);
+  mark(); // fx, camera
+  if (state !== 'menu' || player) updateHud(rdt);
+  mark(); // hud
+  const progs = renderer.info.programs.length;
   renderer.render(scene, camera);
+  if (P) { mark(); P.push({ t: pt[0], seg: pt.slice(1).map((v, i) => +(v - pt[i]).toFixed(2)), newPrograms: renderer.info.programs.length - progs, particles: particles.n, units: units.length }); }
 }
-let edgePointsCache = [], devCam = null; // devCam: fixed camera for dev tools ({pos, look} Vector3s)
-function prewarm() { // compile every effect shader now, not on the first raze/rune
+let edgePointsCache = [], devCam = null, camFocus = null; // devCam: fixed camera for dev tools ({pos, look} Vector3s)
+// Compile every shader and upload every texture now, behind the menu, instead of mid-fight:
+// raze columns, rings, runes, cyclone funnel, Avatar shield, wards, death dissolve. Then draw one
+// full frame so the GPU links programs and uploads the map's textures before play starts.
+const warmGroup = new THREE.Group();
+warmGroup.add(new THREE.Mesh(funnelGeo, funnelMat), new THREE.Mesh(shellGeo, shellMat), new THREE.Mesh(wardStaffGeo, wardStaffMat), new THREE.Mesh(wardEyeGeo, wardEyeMat));
+function prewarm() {
   const hidden = [];
   const show = o => { if (!o.visible) { o.visible = true; hidden.push(o); } };
   columns.forEach(c => show(c.g)); ringPool.forEach(show); scorchPool.forEach(show); crackPool.forEach(show); show(runeMesh);
   units.forEach(u => show(u.tele));
-  try { renderer.compile(scene, camera); } catch (e) {}
-  hidden.forEach(o => { o.visible = false; });
+  if (player) warmGroup.position.copy(player.pos); scene.add(warmGroup); fowAll(warmGroup);
+  try {
+    renderer.compile(scene, camera);
+    // the see-through hero (Veil Blade) is a separate shader variant: compile it too
+    const mats = units.flatMap(u => u.model.userData.mats); mats.forEach(m => { m.transparent = true; });
+    renderer.compile(scene, camera); mats.forEach(m => { m.transparent = false; });
+    renderer.render(scene, camera);
+  } catch (e) {}
+  scene.remove(warmGroup); hidden.forEach(o => { o.visible = false; });
 }
 
 // ------------------------------------------------------------------ boot
