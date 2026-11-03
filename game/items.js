@@ -111,5 +111,8 @@ const SHOP = ['boots', 'treads', 'salve', 'wand', 'ward', 'dagger', 'cyclone', '
 // gold rules
 const GOLD = { start: 200, perSec: 2, kill: 150, perStreak: 25, firstBlood: 100, assist: 60, assistWindow: 10, sellBack: 0.5 };
 
-window.SFA_ITEMS = { ITEMS, SHOP, GOLD, ICONS };
+// painted icons from Meshy (art-data.js) replace the SVG ones when present
+const ART = (window.SFA_ART && window.SFA_ART.icons) || {};
+const iconURL = id => ART[id] || 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(ICONS[id]);
+window.SFA_ITEMS = { ITEMS, SHOP, GOLD, ICONS, iconURL };
 })();

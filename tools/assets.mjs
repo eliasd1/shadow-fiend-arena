@@ -255,12 +255,27 @@ for (const [key, file] of Object.entries(PROPS)) {
 }
 // optional new props from Meshy (see MESHY-PROMPTS.md): models/raw/<name>.glb, simplified to about 5,000 triangles
 const RAW = path.join(MODELS, 'raw');
-for (const [key, file] of Object.entries({ shop: 'shop' })) {
-  const src = path.join(RAW, file + '.glb'); if (!fs.existsSync(src)) continue;
-  let m = loadMesh(src); const tris = m.idx.length / 3;
-  const color = m.color, mr = m.mr; if (tris > 6000) m = { ...simplify(m, 5000), color, mr };
-  props[key] = emit(key, m, full({ ...m, color, mr }));
+// any models/raw/<name>.glb becomes prop <name> (kebab-case -> camelCase), e.g. rune-haste.glb -> runeHaste.
+// Buildings may keep up to 8,000 triangles, everything else is simplified to about 5,000.
+const BIG = new Set(['shop', 'ice-throne', 'crypt', 'ziggurat']);
+if (fs.existsSync(RAW)) for (const f of fs.readdirSync(RAW).filter(f => f.endsWith('.glb')).sort()) {
+  const name = f.slice(0, -4), key = name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  try {
+    let m = loadMesh(path.join(RAW, f)); const color = m.color, mr = m.mr, cap = BIG.has(name) ? 8000 : 5000;
+    if (m.idx.length / 3 > cap * 1.15) m = { ...simplify(m, cap), color, mr };
+    if (!color) { console.log(`skip ${f}: no base colour texture`); continue; }
+    props[key] = emit(key, m, full({ ...m, color, mr }));
+  } catch (e) { console.log(`skip ${f}: ${e.message}`); }
 }
+// 2D art from Meshy: art/icons/<itemId>.png (shown at up to 64 px, stored at 128) and art/title.jpg
+const ART = path.join(ROOT, 'art'), art = { icons: {}, title: null };
+const img = (src, size, fmt, q) => { const dst = path.join(TMP, 'art.' + fmt); execFileSync('sips', ['-s', 'format', fmt === 'jpg' ? 'jpeg' : 'png', ...(fmt === 'jpg' ? ['-s', 'formatOptions', String(q)] : []), '-Z', String(size), src, '--out', dst], { stdio: 'ignore' }); return fs.readFileSync(dst).toString('base64'); };
+if (fs.existsSync(path.join(ART, 'icons'))) for (const f of fs.readdirSync(path.join(ART, 'icons')).filter(f => /\.(png|jpe?g)$/i.test(f))) {
+  art.icons[f.replace(/\.[^.]+$/, '')] = 'data:image/jpeg;base64,' + img(path.join(ART, 'icons', f), 128, 'jpg', 88);
+}
+for (const f of ['title.jpg', 'title.png']) if (fs.existsSync(path.join(ART, f))) { art.title = 'data:image/jpeg;base64,' + img(path.join(ART, f), 1920, 'jpg', 80); break; }
+fs.writeFileSync(path.join(GAME, 'art-data.js'), '/* 2D art generated with Meshy (see MESHY-BRIEF.md); empty until added */\nwindow.SFA_ART=' + JSON.stringify(art) + ';\n');
+report.push(`art: ${Object.keys(art.icons).length} icons, title ${art.title ? 'yes' : 'no'}`);
 fs.writeFileSync(path.join(GAME, 'props-data.js'), 'window.SFA_PROPS=' + JSON.stringify(props) + ';\n');
 
 // announcer: source WAVs in audio/announcer -> 48 kbps AAC (.m4a), which every current browser decodes
@@ -273,4 +288,4 @@ for (const f of fs.readdirSync(VOICE).filter(f => f.endsWith('.wav')).sort()) {
 fs.writeFileSync(path.join(GAME, 'announcer-data.js'), '/* Announcer voice: "Announcer kill sounds" by TripleSnail, recorded by Antti Saari, edited by TripleSnail. CC-BY 3.0 https://opengameart.org/content/announcer-kill-sounds */\nwindow.SFA_ANNOUNCER=' + JSON.stringify(voices) + ';\n');
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(report.join('\n'));
-for (const f of ['hero-data.js', 'props-data.js', 'announcer-data.js']) console.log(`${f}: ${(fs.statSync(path.join(GAME, f)).size / 1e6).toFixed(2)} MB`);
+for (const f of ['hero-data.js', 'props-data.js', 'announcer-data.js', 'art-data.js']) console.log(`${f}: ${(fs.statSync(path.join(GAME, f)).size / 1e6).toFixed(2)} MB`);

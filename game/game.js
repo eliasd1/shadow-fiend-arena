@@ -28,8 +28,7 @@ const RUNES = {
   regen: { name: 'Regeneration', color: 0x3aff6a, css: '#5aff8a', dur: 6 },
 };
 
-const { ITEMS, SHOP, GOLD, ICONS } = window.SFA_ITEMS;
-const iconURL = id => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(ICONS[id]);
+const { ITEMS, SHOP, GOLD, iconURL } = window.SFA_ITEMS;
 const $ = id => document.getElementById(id);
 const rnd = (a, b) => a + Math.random() * (b - a);
 const wrap = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
@@ -59,6 +58,8 @@ const MAPS = {
     decor: mirror([
       { prop: 'gargoyle', x: -26, z: -12, h: 4.5, rot: 0.6 }, { prop: 'gargoyle', x: 26, z: -12, h: 4.5, rot: -0.6 },
       { prop: 'obelisk', x: 0, z: -23, h: 9 }, { prop: 'obelisk', x: -14, z: -22.5, h: 7 }, { prop: 'obelisk', x: 14, z: -22.5, h: 7 },
+      { prop: 'ziggurat', x: -25, z: -21, h: 8, rot: 0.7, opt: true }, { prop: 'skullBrazier', x: -23, z: -4, h: 3, rot: 1.6, opt: true },
+      { prop: 'bonePile', x: -21, z: 20, h: 1.6, rot: 2, opt: true },
     ]),
     runes: [[-12, 0], [12, 0]],
   },
@@ -75,6 +76,8 @@ const MAPS = {
     decor: mirror([
       { prop: 'gargoyle', x: -27, z: -17, h: 4.2, rot: 0.8 }, { prop: 'gargoyle', x: 27, z: 17.5, h: 4.2, rot: -2.4 },
       { prop: 'column', x: -25.5, z: 6, h: 4.5 }, { prop: 'column', x: -10, z: 21.5, h: 3.8 },
+      { prop: 'moonBasin', x: -26.5, z: -3, h: 1.6, opt: true }, { prop: 'ruinArch', x: -3, z: -21.5, h: 5, opt: true },
+      { prop: 'stoneLantern', x: -24.5, z: -11, h: 2.2, opt: true }, { prop: 'stoneLantern', x: 9, z: -20.5, h: 2.2, opt: true },
     ]),
     outsideTrees: true,
     runes: [[-10, -5.4], [10, 5.4]],
@@ -88,6 +91,7 @@ const MAPS = {
     decor: [
       { prop: 'ice', x: 0, z: -27, h: 14 }, { prop: 'ice', x: -9, z: -25, h: 8, rot: 1 }, { prop: 'ice', x: 9, z: -25, h: 8, rot: 2 },
       { prop: 'gargoyle', x: -22, z: 12, h: 4, rot: 2.2 }, { prop: 'gargoyle', x: 22, z: 12, h: 4, rot: -2.2 },
+      { prop: 'iceThrone', x: 0, z: -32, h: 18, opt: true }, { prop: 'frozenPillar', x: -24, z: -9, h: 5, rot: 0.4, opt: true }, { prop: 'frozenPillar', x: 24, z: 9, h: 5, rot: 2.1, opt: true },
     ],
     runes: [[-16, 0], [16, 0]],
   },
@@ -774,7 +778,7 @@ function buildMap(id) {
   if (m.theme === 'frozen') for (const [x, z] of edgePoints(22, 1.2)) put('ice', { x, y: -0.2, z, h: rnd(1.6, 2.8), rot: rnd(0, 6.28) });
   const casters = [];
   for (const o of m.obstacles) { const p = { kind: o.prop, x: o.x, z: o.z, h: o.h, rot: o.rot !== undefined ? o.rot : rnd(0, 6.28) }; put(o.prop, p); casters.push(p); }
-  for (const o of m.decor) put(o.prop, { x: o.x, y: m.edge === 'lava' ? -0.8 : 0, z: o.z, h: o.h, rot: o.rot || 0 });
+  for (const o of m.decor) if (!o.opt || PROP_TEMPLATES[o.prop]) put(o.prop, { x: o.x, y: m.edge === 'lava' ? -0.8 : 0, z: o.z, h: o.h, rot: o.rot || 0 });
 
   // ground
   const tex = paintGround(m, casters);
@@ -1257,6 +1261,14 @@ function spawnRune() {
   rune = { x: spot[0], z: spot[1], type }; const R = RUNES[type];
   runeMesh.position.set(rune.x, 0, rune.z); runeMesh.visible = true; runeLight.position.set(rune.x, 1.2, rune.z); runeLight.intensity = 1.4;
   runeGem.material.emissive.set(R.color); runeRing.material.color.set(R.color); runeLight.color.set(R.color);
+  const key = 'rune' + { haste: 'Haste', dd: 'Dd', regen: 'Regen' }[type];
+  if (PROP_TEMPLATES[key]) { // carved rune stone from Meshy instead of the plain gem
+    runeMesh.userData.stones = runeMesh.userData.stones || {};
+    const st = runeMesh.userData.stones[key] || (runeMesh.userData.stones[key] = makeProp(key, 1.1));
+    if (!st.parent) { runeGem.add(st); st.position.y = -0.55; fowAll(st); }
+    for (const k in runeMesh.userData.stones) runeMesh.userData.stones[k].visible = k === key;
+    runeGem.material.visible = false;
+  }
   killfeed(`<span style="color:${R.css}">A ${R.name} rune has appeared!</span>`);
 }
 function takeRune(u) {
@@ -1284,8 +1296,13 @@ function recalcItems(u) {
 // what buying `id` would cost this unit right now (Ember Treads is cheaper with Swift Boots in the bag)
 function priceFor(u, id) { const D = ITEMS[id]; return D.needs && slotOf(u, D.needs) < 0 ? D.cost + ITEMS[D.needs].cost : D.cost; }
 const STACKS = { salve: 3, ward: 2 };
+// trading only happens standing next to a Soul Merchant, like walking up to a shop in DotA
+const SHOP_RANGE = 3.7;
+const nearestShop = u => (MAP.shops || []).reduce((b, o) => !b || Math.hypot(o.x - u.pos.x, o.z - u.pos.z) < Math.hypot(b.x - u.pos.x, b.z - u.pos.z) ? o : b, null);
+const atShop = u => { const s = nearestShop(u); return !!s && Math.hypot(s.x - u.pos.x, s.z - u.pos.z) < SHOP_RANGE; };
 function buyItem(u, id) {
   const D = ITEMS[id], price = priceFor(u, id);
+  if (!atShop(u)) return 'Walk up to a Soul Merchant to buy';
   if (u.gold < price) return 'Not enough gold';
   const own = slotOf(u, id);
   if (STACKS[id]) {
@@ -1298,7 +1315,7 @@ function buyItem(u, id) {
   u.gold -= price; recalcItems(u); return true;
 }
 function sellItem(u, i) {
-  const it = u.items[i]; if (!it) return false;
+  const it = u.items[i]; if (!it || !atShop(u)) return false;
   const D = ITEMS[it.id], base = D.needs ? D.cost + ITEMS[D.needs].cost : D.cost;
   u.gold += Math.floor(base * GOLD.sellBack * (STACKS[it.id] ? it.charges : 1));
   u.items[i] = null; recalcItems(u); return true;
@@ -1373,7 +1390,8 @@ const wardStaffMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness
 function placeWard(u, x, z) {
   if (u.wards.length >= ITEMS.ward.max) removeWard(u.wards[0]);
   const g = new THREE.Group(); g.position.set(x, 0, z);
-  g.add(new THREE.Mesh(wardStaffGeo, wardStaffMat)); const eye = new THREE.Mesh(wardEyeGeo, wardEyeMat); eye.position.y = 1.35; g.add(eye);
+  if (PROP_TEMPLATES.ward) { g.add(makeProp('ward', 1.6)); g.add(new THREE.Group()); } // keep children[1] for the bob
+  else { g.add(new THREE.Mesh(wardStaffGeo, wardStaffMat)); const eye = new THREE.Mesh(wardEyeGeo, wardEyeMat); eye.position.y = 1.35; g.add(eye); }
   const ring = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: 0xffd040, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.18 }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; ring.scale.setScalar(ITEMS.ward.vision); g.add(ring);
   g.visible = u === player; scene.add(g); fowAll(g);
@@ -1398,6 +1416,17 @@ function pathCrossesLava(ax, az, bx, bz) {
 class Bot {
   constructor(u, d) { this.u = u; this.d = d; this.think = rnd(0, 0.5); this.strafe = Math.random() < 0.5 ? 1 : -1; this.target = null; this.pendingCast = -1; this.castDelay = 0; this.shopT = rnd(0.5, 2); this.fleeT = 0; }
   // ---- items: shopping, then using them when they help
+  // what the bot wants to buy next and can afford (null: nothing)
+  wish() {
+    const u = this.u, D = this.d;
+    if (u.hp < u.maxHp * 0.5 && slotOf(u, 'salve') < 0 && u.gold >= ITEMS.salve.cost) return 'salve';
+    for (const id of D.plan) {
+      if (id === 'ward' && !fogOn) continue;
+      if (slotOf(u, id) >= 0 || (id === 'boots' && slotOf(u, 'treads') >= 0)) continue;
+      return u.gold >= priceFor(u, id) ? id : null;
+    }
+    return null;
+  }
   shop() {
     const u = this.u, D = this.d;
     if (u.hp < u.maxHp * 0.5 && slotOf(u, 'salve') < 0 && buyItem(u, 'salve') === true) return;
@@ -1448,7 +1477,11 @@ class Bot {
   step(dt) {
     const u = this.u, D = this.d;
     if (!u.alive || u.cyclone > 0) return;
-    if ((this.shopT -= dt) <= 0) { this.shopT = 1.5; this.shop(); }
+    if ((this.shopT -= dt) <= 0) { // decide on a shopping trip; buy on arrival
+      this.shopT = 1.5;
+      if (atShop(u)) { this.shop(); this.shopping = !!this.wish() && this.shopping; }
+      else if (!this.shopping && this.wish()) this.shopping = true;
+    }
     if (u.cast) return;
     if (this.pendingCast >= 0) { this.castDelay -= dt; if (this.castDelay <= 0) { u.castRaze(this.pendingCast); this.pendingCast = -1; } return; }
     this.think -= dt; if (this.think > 0) return;
@@ -1467,6 +1500,14 @@ class Bot {
       }
     }
     if (this.sustain()) return;
+    if (this.shopping) { // walk to the nearest Soul Merchant unless an enemy is right on top of us
+      const threat = units.some(o => o !== u && o.alive && canSeeUnit(u, o) && Math.hypot(o.pos.x - u.pos.x, o.pos.z - u.pos.z) < 6);
+      if (!threat || u.hp < u.maxHp * 0.35) {
+        const s = nearestShop(u);
+        if (atShop(u)) { this.shop(); if (!this.wish()) this.shopping = false; return; }
+        if (s) { const l = Math.hypot(s.x, s.z) || 1; this.goTo(s.x - s.x / l * 2.7, s.z - s.z / l * 2.7); return; }
+      }
+    }
     if (this.fleeT > 0) { this.fleeT -= D.react; return; } // keep running
     // runes
     if (rune && Math.random() < D.rune) {
@@ -1602,7 +1643,7 @@ const invEls = [];
 for (let i = 0; i < 6; i++) {
   const el = document.createElement('div'); el.className = 'islot empty';
   el.innerHTML = `<img alt=""><div class="cd"></div><span class="k">${i + 1}</span><span class="n"></span><span class="t"></span>`;
-  el.addEventListener('mousedown', e => { e.stopPropagation(); if (!player) return; if (e.button === 0) playerUseItem(i); if (e.button === 2 && player.items[i] && sellItem(player, i)) { sfx('coin', 0.5); refreshInv(); } });
+  el.addEventListener('mousedown', e => { e.stopPropagation(); if (!player) return; if (e.button === 0) playerUseItem(i); if (e.button === 2 && player.items[i]) { if (sellItem(player, i)) { sfx('coin', 0.5); refreshInv(); } else showErr('Walk up to a Soul Merchant to sell'); } });
   el.addEventListener('contextmenu', e => e.preventDefault());
   el.addEventListener('mouseenter', () => { const it = player && player.items[i]; if (!it) return; const r = el.getBoundingClientRect(), T = $('itemTip'); T.innerHTML = itemTipHTML(it.id) + '<div class="classic">Right-click to sell for half</div>'; T.style.left = Math.min(innerWidth - 270, r.left - 100) + 'px'; T.style.bottom = (innerHeight - r.top + 8) + 'px'; T.classList.remove('hidden'); });
   el.addEventListener('mouseleave', () => $('itemTip').classList.add('hidden'));
@@ -1656,6 +1697,7 @@ function toggleShop(open = !shopOpen) {
 }
 function updateShop() {
   $('shopGold').textContent = Math.floor(player.gold);
+  $('shop').classList.toggle('far', !atShop(player));
   for (const id of SHOP) {
     const el = shopEls[id], price = priceFor(player, id);
     el.classList.toggle('poor', player.gold < price);
@@ -1689,7 +1731,7 @@ function updateHud(dt) {
   updateInv(); if (shopOpen) updateShop();
   if (errT > 0) { errT -= dt; if (errT <= 0) $('err').style.opacity = 0; }
   { // the Soul Merchant: open on arrival after right-clicking it; hint when standing near one
-    const near = (MAP.shops || []).some(o => Math.hypot(o.x - player.pos.x, o.z - player.pos.z) < 4.5);
+    const near = atShop(player);
     if (player.wantShop && Math.hypot(player.wantShop.x - player.pos.x, player.wantShop.z - player.pos.z) < 3.6) { player.wantShop = null; toggleShop(true); }
     $('shopHint').style.opacity = near && !shopOpen && player.alive ? 1 : 0;
   }
@@ -1868,9 +1910,10 @@ function prewarm() { // compile every effect shader now, not on the first raze/r
 }
 
 // ------------------------------------------------------------------ boot
+if (window.SFA_ART && window.SFA_ART.title) document.getElementById('menu').style.background = `linear-gradient(90deg, #000d 0%, #0008 45%, #0000 100%), url(${window.SFA_ART.title}) center / cover`;
 async function boot() {
   $('play').disabled = true; $('loadState').textContent = 'Summoning the Shadow Fiend…';
-  const P = window.SFA_PROPS || {}, kinds = ['obelisk', 'gargoyle', 'column', 'tree', 'treeFar', 'ice', 'shop']; // shop: only if a model was added
+  const P = window.SFA_PROPS || {}, kinds = Object.keys(P); // base props plus any Meshy additions (shop, ward, runes, decor)
   const [hero, heroShadow, ...props] = await Promise.all([parseGLB(window.HERO_GLB_B64), parseGLB(window.HERO_SHADOW_GLB_B64), ...kinds.map(k => parseGLB(P[k]))]);
   if (hero) {
     heroTemplate = fitModel(hero, HERO_H);

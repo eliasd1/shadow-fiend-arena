@@ -39,7 +39,7 @@ Why these numbers:
 
 | Action | Input |
 |---|---|
-| Open or close the shop | **B**, the **SHOP** button, or right-click a Soul Merchant building (you walk there and it opens) |
+| Open or close the shop | **B** or the **SHOP** button (browse anywhere), or right-click a Soul Merchant building (you walk there and it opens). **Buying and selling only work standing next to a Soul Merchant.** Bots make shopping trips too. |
 | Buy | click an item in the shop |
 | Use an item | **1–6**. Targeted items aim at the cursor: Dagger, Ward, and Cyclone (enemy near the cursor, otherwise yourself) |
 | Sell | right-click an inventory slot |

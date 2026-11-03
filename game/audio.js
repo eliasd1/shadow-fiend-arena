@@ -131,17 +131,16 @@ const SOUNDS = {
       env(g.gain, ct, 0.001, rnd(0.05, 0.28) * (1 - (ct - t) / 1.5), 0.018 + Math.random() * 0.02); chain(c, hp, g, out);
     }
   },
-  // a hit on a hero: flesh thump + short soul wail
+  // a hit on a hero: a heavy burning impact, a crunch, and the hiss of scorched shadow
   hit(out, t) {
-    const o = osc('sine', t, 0.18, 170, 55), g = gain(); env(g.gain, t, 0.003, 0.7, 0.2); chain(o, g, out);
-    const n = noise(t, 0.12), bp = filt('bandpass', 900, 1.2), ng = gain(); env(ng.gain, t, 0.002, 0.35, 0.12); chain(n, bp, ng, out);
-    const w = osc('triangle', t + 0.03, 0.45, 760, 330), vib = osc('sine', t, 0.5, 9), vg = gain(25), wg = gain();
-    chain(vib, vg); vg.connect(w.frequency); env(wg.gain, t + 0.03, 0.03, 0.09, 0.45); chain(w, filt('lowpass', 2500), wg, out);
+    thud(out, t, 95, 0.22, 0.75);
+    const n = noise(t, 0.12), ws = ctx.createWaveShaper(), bp = filt('bandpass', 1300, 1.1), g = gain(); ws.curve = distCurve; env(g.gain, t, 0.002, 0.35, 0.12); chain(n, ws, bp, g, out);
+    const h = noise(t + 0.04, 0.4), hp = filt('highpass', 3000), hg = gain(); env(hg.gain, t + 0.04, 0.01, 0.06, 0.4); chain(h, hp, hg, out);
   },
   // a hero dies: demonic groan through vowel formants + rising soul shimmer
   death(out0, t) {
-    const out = gain(4); out.connect(out0);
-    const d = 1.3, src = gain();
+    const out = gain(0.6); out.connect(out0);
+    const d = 1.3, src = gain(1); // summing bus (gain() defaults to 0, which silenced this sound)
     for (const det of [0, 9]) { const o = osc('sawtooth', t, d, 115, 40, det); o.connect(src); }
     const sg = gain(); env(sg.gain, t, 0.04, 2.6, d);
     const f1 = filt('bandpass', 750, 6), f2 = filt('bandpass', 1150, 7), mix = gain(1);
@@ -157,17 +156,16 @@ const SOUNDS = {
     bp.frequency.setValueAtTime(250, t); bp.frequency.exponentialRampToValueAtTime(900, t + 0.18); bp.frequency.exponentialRampToValueAtTime(200, t + 0.45);
     env(g.gain, t, 0.08, 0.9, 0.45); chain(n, bp, g, out);
   },
-  // rune pickup: deep resonant thoom
+  // rune pickup: power rushing in, a deep swell under a crystalline shimmer
   rune(out, t) {
-    const o = osc('sine', t, 0.9, 180, 90), g = gain(); env(g.gain, t, 0.01, 0.5, 0.9); chain(o, g, out);
-    const o2 = osc('triangle', t, 0.9, 360, 180), g2 = gain(); env(g2.gain, t, 0.01, 0.12, 0.7); chain(o2, filt('lowpass', 1200), g2, out);
+    const s = osc('sine', t, 1.1, 45, 90), sg = gain(); env(sg.gain, t, 0.15, 0.5, 1.1); chain(s, sg, out);
+    metal(out, t, 1480, [1, 2.76, 5.4], 0.9, 0.05); metal(out, t + 0.05, 1975, [1, 2.76, 5.4], 0.8, 0.04);
+    const n = noise(t, 0.6), bp = filt('bandpass', 600, 1.5), g = gain(); bp.frequency.setValueAtTime(300, t); bp.frequency.exponentialRampToValueAtTime(3000, t + 0.5); env(g.gain, t, 0.3, 0.2, 0.6); chain(n, bp, g, out);
   },
-  // you got the kill: deep bell/gong
+  // you got the kill: a deep tolling iron bell with a dark choir under it
   kill(out, t) {
-    for (const [f, a] of [[65.4, 0.5], [130.8, 0.3], [171, 0.18], [196.5, 0.15], [329, 0.06]]) {
-      const o = osc('sine', t, 2.6, f), g = gain(); env(g.gain, t, 0.005, a, 2.6); chain(o, g, out);
-    }
-    const n = noise(t, 0.08), bp = filt('bandpass', 2500, 2), g = gain(); env(g.gain, t, 0.001, 0.2, 0.08); chain(n, bp, g, out);
+    metal(out, t, 55, [1, 2.0, 2.92, 4.2, 5.4], 3.0, 0.35); thud(out, t, 70, 0.3, 0.4);
+    choir(out, t + 0.05, 1.8, 55, 0.12);
   },
   // respawn: reversed-feel swell up from below
   respawn(out, t) {
@@ -188,45 +186,88 @@ const SOUNDS = {
     const o = osc('sine', t, 1.2, 90, 30), g = gain(); env(g.gain, t, 0.01, 0.8, 1.2); chain(o, g, out);
     for (const det of [-10, 10]) { const s = osc('sawtooth', t, 1.4, 73.4, 73.4, det), lp = filt('lowpass', 600), sg = gain(); env(sg.gain, t, 0.02, 0.12, 1.4); chain(s, lp, sg, out); }
   },
-  // ---- items and shop
-  // gold coins: two bright metallic pings
+  // ---- items, shop and pickups: physical sources only (metal, leather, wood, glass, air, voices)
+  // a few coins clinking: inharmonic metal partials with fast decays
   coin(out, t) {
-    for (const [dt, f] of [[0, 2093], [0.07, 2637]]) { const o = osc('square', t + dt, 0.18, f), g = gain(); env(g.gain, t + dt, 0.002, 0.12, 0.18); chain(o, filt('bandpass', f, 3), g, out); }
+    for (let i = 0; i < 4; i++) { const ct = t + Math.random() * 0.12; metal(out, ct, rnd(2300, 3400), [1, 2.4, 3.9, 5.6], rnd(0.05, 0.12), rnd(0.03, 0.06)); }
   },
-  // purchase: coin pouch thud plus a chime
+  // purchase: a leather pouch thrown on the counter, then a spill of coins
   buy(out, t) {
-    const n = noise(t, 0.12), g = gain(); env(g.gain, t, 0.003, 0.4, 0.12); chain(n, filt('lowpass', 900), g, out);
-    for (const [dt, f] of [[0.03, 1568], [0.09, 2093], [0.15, 2637]]) { const o = osc('triangle', t + dt, 0.35, f), gg = gain(); env(gg.gain, t + dt, 0.003, 0.14, 0.35); chain(o, gg, out); }
+    thud(out, t, 420, 0.09, 0.5); thud(out, t, 120, 0.15, 0.4);
+    for (let i = 0; i < 8; i++) { const ct = t + 0.03 + Math.pow(Math.random(), 1.5) * 0.35; metal(out, ct, rnd(1900, 3600), [1, 2.4, 3.9, 5.6], rnd(0.05, 0.14), rnd(0.02, 0.05)); }
   },
-  shopOpen(out, t) { const n = noise(t, 0.25), bp = filt('bandpass', 700, 1.5), g = gain(); bp.frequency.setValueAtTime(400, t); bp.frequency.exponentialRampToValueAtTime(1500, t + 0.2); env(g.gain, t, 0.02, 0.25, 0.25); chain(n, bp, g, out); },
-  error(out, t) { const o = osc('square', t, 0.14, 160, 120), g = gain(); env(g.gain, t, 0.004, 0.18, 0.14); chain(o, filt('lowpass', 900), g, out); },
-  // Shadowstep: a short reversed whoosh into a pop
+  // shop: an old wooden door creaks open
+  shopOpen(out, t) {
+    const o = osc('sawtooth', t, 0.5, 70, 95), j = osc('sine', t, 0.5, 23), jg = gain(18), bp = filt('bandpass', 700, 7), g = gain();
+    chain(j, jg); jg.connect(o.frequency); env(g.gain, t, 0.06, 0.18, 0.5); chain(o, bp, g, out); thud(out, t + 0.42, 160, 0.12, 0.3);
+  },
+  // can't do that: a dull double knock on wood
+  error(out, t) { thud(out, t, 180, 0.07, 0.35); thud(out, t + 0.09, 150, 0.08, 0.3); },
+  // Shadowstep: air torn open, a sub drop, the hiss of shadow closing behind you
   blink(out, t) {
-    const n = noise(t, 0.3), bp = filt('bandpass', 400, 2), g = gain();
-    bp.frequency.setValueAtTime(300, t); bp.frequency.exponentialRampToValueAtTime(5000, t + 0.22);
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); chain(n, bp, g, out);
-    const o = osc('sine', t + 0.2, 0.15, 900, 200), og = gain(); env(og.gain, t + 0.2, 0.003, 0.3, 0.15); chain(o, og, out);
+    const n = noise(t, 0.35), bp = filt('bandpass', 3000, 1.6), g = gain();
+    bp.frequency.setValueAtTime(3500, t); bp.frequency.exponentialRampToValueAtTime(350, t + 0.3); env(g.gain, t, 0.01, 0.45, 0.35); chain(n, bp, g, out);
+    const s = osc('sine', t, 0.4, 140, 38), sg = gain(); env(sg.gain, t, 0.005, 0.6, 0.4); chain(s, sg, out);
+    const h = noise(t + 0.08, 0.5), hp = filt('highpass', 4000), hg = gain(); env(hg.gain, t + 0.08, 0.02, 0.08, 0.5); chain(h, hp, hg, out);
   },
-  // Cyclone: rising, swirling wind
+  // Cyclone: a real gusting wind with a low rumble under it
   cyclone(out, t) {
-    const n = noise(t, 2.2), bp = filt('bandpass', 500, 4), g = gain(), lfo = osc('sine', t, 2.2, 7), lg = gain(300);
-    bp.frequency.setValueAtTime(300, t); bp.frequency.linearRampToValueAtTime(1100, t + 1.2); chain(lfo, lg); lg.connect(bp.frequency);
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.6, t + 0.25); g.gain.linearRampToValueAtTime(0.4, t + 1.8); g.gain.linearRampToValueAtTime(0, t + 2.2); chain(n, bp, g, out);
+    const d = 2.3;
+    for (const [f, q, a] of [[380, 3, 0.5], [900, 5, 0.25]]) {
+      const n = noise(t, d), bp = filt('bandpass', f, q), g = gain(), l1 = osc('sine', t, d, rnd(0.7, 1.1)), l2 = osc('sine', t, d, rnd(2, 3)), lg = gain(f * 0.35);
+      chain(l1, lg); chain(l2, lg); lg.connect(bp.frequency);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(a, t + 0.35); g.gain.setValueAtTime(a, t + d - 0.5); g.gain.exponentialRampToValueAtTime(0.0001, t + d); chain(n, bp, g, out);
+    }
+    const r = ctx.createBufferSource(); r.buffer = brownBuf; r.start(t, rnd(0, 2)); r.stop(t + d);
+    const rg = gain(); env(rg.gain, t, 0.3, 0.6, d); chain(r, filt('lowpass', 120), rg, out);
   },
-  // Avatar Totem: a deep gong with a golden shimmer
+  // Avatar Totem: a huge iron gong and a dark choir swelling under it
   avatar(out, t) {
-    for (const [f, a] of [[98, 0.5], [196, 0.3], [294, 0.15], [523, 0.08]]) { const o = osc('sine', t, 2.4, f), g = gain(); env(g.gain, t, 0.01, a, 2.4); chain(o, g, out); }
-    for (let i = 0; i < 6; i++) { const o = osc('triangle', t + 0.05 * i, 0.6, 1800 + i * 240), g = gain(); env(g.gain, t + 0.05 * i, 0.005, 0.03, 0.6); chain(o, g, out); }
+    metal(out, t, 68, [1, 2.32, 4.25, 6.63, 9.38], 2.6, 0.28);
+    thud(out, t, 90, 0.4, 0.6);
+    choir(out, t, 2.2, 73.4, 0.18);
   },
-  // Veil Blade: a breathy fade into nothing
+  // Veil Blade: an inhaled breath, then silence closing in
   veil(out, t) {
-    const n = noise(t, 0.9), hp = filt('highpass', 2500, 0.7), g = gain(); env(g.gain, t, 0.05, 0.25, 0.9); chain(n, hp, g, out);
-    const o = osc('sine', t, 0.9, 700, 180), og = gain(); env(og.gain, t, 0.02, 0.12, 0.9); chain(o, og, out);
+    const n = noise(t, 0.6), hp = filt('bandpass', 2400, 0.8), g = gain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3, t + 0.5); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6); chain(n, hp, g, out);
+    const s = osc('sine', t + 0.5, 0.5, 90, 45), sg = gain(); env(sg.gain, t + 0.5, 0.01, 0.35, 0.5); chain(s, sg, out);
+    whisper(out, t + 0.1, 0.6, 0.05);
   },
-  salve(out, t) { for (const [dt, f] of [[0, 523], [0.12, 659], [0.24, 784]]) { const o = osc('sine', t + dt, 0.5, f), g = gain(); env(g.gain, t + dt, 0.01, 0.12, 0.5); chain(o, g, out); } },
-  ward(out, t) { const o = osc('sine', t, 0.6, 330, 660), g = gain(); env(g.gain, t, 0.01, 0.2, 0.6); chain(o, g, out); const n = noise(t, 0.08), ng = gain(); env(ng.gain, t, 0.002, 0.3, 0.08); chain(n, filt('lowpass', 600), ng, out); },
-  wand(out, t) { for (let i = 0; i < 5; i++) { const o = osc('sine', t + i * 0.04, 0.4, 600 + i * 150, 1200 + i * 200), g = gain(); env(g.gain, t + i * 0.04, 0.005, 0.07, 0.4); chain(o, g, out); } },
+  // Soothing Salve: a cork pulled, then a few gulps
+  salve(out, t) {
+    const c = noise(t, 0.02), cg = gain(); env(cg.gain, t, 0.001, 0.4, 0.02); chain(c, filt('highpass', 1500), cg, out);
+    const p = osc('sine', t, 0.05, 900, 380), pg = gain(); env(pg.gain, t, 0.002, 0.25, 0.05); chain(p, pg, out);
+    for (let i = 0; i < 3; i++) { const gt = t + 0.18 + i * 0.16, o = osc('sine', gt, 0.07, 240, 520), g = gain(); env(g.gain, gt, 0.01, 0.3, 0.07); chain(o, filt('lowpass', 900), g, out); }
+  },
+  // Watcher Ward: a staff driven into the earth, then a faint uneasy hum
+  ward(out, t) {
+    thud(out, t, 240, 0.1, 0.5); thud(out, t, 70, 0.25, 0.5);
+    for (const f of [196, 207.6]) { const o = osc('sine', t + 0.05, 1.2, f), g = gain(); env(g.gain, t + 0.05, 0.2, 0.05, 1.2); chain(o, g, out); }
+  },
+  // Soul Wand: the captured souls whisper and rush out
+  wand(out, t) { whisper(out, t, 0.7, 0.12); const s = osc('sawtooth', t, 0.6, 55, 110), g = gain(); env(g.gain, t, 0.05, 0.12, 0.6); chain(s, filt('lowpass', 400, 3), g, out); },
 };
+// ---- physical building blocks for the sounds above
+function metal(out, t, f0, ratios, decay, amp) { // struck metal: inharmonic partials, higher ones die faster
+  ratios.forEach((r, i) => { const o = osc('sine', t, decay * 1.2, f0 * r * rnd(0.995, 1.005)), g = gain(); env(g.gain, t, 0.001, amp / (1 + i * 0.6), decay / (1 + i * 0.35)); chain(o, g, out); });
+}
+function thud(out, t, f, dur, amp) { // a dull body impact: low-passed noise plus a dropping sine
+  const n = noise(t, dur), g = gain(); env(g.gain, t, 0.002, amp, dur); chain(n, filt('lowpass', f * 3), g, out);
+  const o = osc('sine', t, dur, f, f * 0.55), og = gain(); env(og.gain, t, 0.002, amp * 0.8, dur); chain(o, og, out);
+}
+function choir(out, t, dur, f, amp) { // a low "ah" from detuned voices through vowel formants
+  const src = gain(1); for (const det of [-12, 0, 9, 17]) osc('sawtooth', t, dur, f, f, det).connect(src);
+  const mix = gain(1), g = gain(); for (const [ff, q] of [[700, 6], [1220, 8], [2600, 10]]) { const b = filt('bandpass', ff, q); src.connect(b); b.connect(mix); }
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(amp, t + dur * 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); chain(mix, g, out);
+}
+function whisper(out, t, dur, amp) { // breathy formant noise with a tremble, like many voices at once
+  for (const f of [800, 1500, 2600]) {
+    const n = noise(t, dur), b = filt('bandpass', f * rnd(0.9, 1.1), 9), g = gain(), l = osc('sine', t, dur, rnd(14, 24)), lg = gain(amp * 0.5);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(amp, t + dur * 0.5); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    chain(l, lg); lg.connect(g.gain); chain(n, b, g, out);
+  }
+}
 const WET = { coin: 0.15, buy: 0.2, shopOpen: 0.1, error: 0, blink: 0.4, cyclone: 0.5, avatar: 0.7, veil: 0.6, salve: 0.4, ward: 0.3, wand: 0.5, rune: 0.6, cast: 0.25, raze: 0.55, hit: 0.3, death: 0.6, soul: 0.35, kill: 0.6, respawn: 0.6, heartbeat: 0.05, stinger: 0.7 };
 
 function play(kind, opts = {}) {
@@ -315,7 +356,7 @@ window.SFA_AUDIO = {
   get muted() { return muted; }, set muted(m) { muted = !!m; applyVolume(); },
   _sounds: SOUNDS, get _ctx() { return ctx; },
   // silent offline render of one sound, for testing (returns peak and RMS)
-  async _renderOffline(kind) {
+  async _renderOffline(kind, wantData) {
     const saved = { ctx, sfxBus, revIn, whiteBuf, brownBuf, distCurve };
     ctx = new OfflineAudioContext(2, 44100 * 3, 44100); makeBuffers();
     sfxBus = ctx.destination; const rev = makeReverb(2.8, 2.6); revIn = ctx.createGain(); revIn.gain.value = 0.9;
@@ -325,7 +366,7 @@ window.SFA_AUDIO = {
     ({ ctx, sfxBus, revIn, whiteBuf, brownBuf, distCurve } = saved);
     let peak = 0, sum = 0, nan = false; const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) { const v = d[i]; if (v !== v) nan = true; peak = Math.max(peak, Math.abs(v)); sum += v * v; }
-    return { kind, peak: +peak.toFixed(3), rms: +Math.sqrt(sum / d.length).toFixed(4), nan };
+    return { kind, peak: +peak.toFixed(3), rms: +Math.sqrt(sum / d.length).toFixed(4), nan, ...(wantData ? { data: d } : {}) };
   },
 };
 })();
