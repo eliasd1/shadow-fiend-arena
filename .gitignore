@@ -4,3 +4,4 @@ models/shadow-fiend-untextured.glb
 models/props/*.glb
 .DS_Store
 .claude/
+models/optimized/

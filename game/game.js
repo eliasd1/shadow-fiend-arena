@@ -31,6 +31,9 @@ const $ = id => document.getElementById(id);
 const rnd = (a, b) => a + Math.random() * (b - a);
 const wrap = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+// particles to spawn this frame for a per-second rate, so effects look the same at 60, 144 or 240 Hz
+let fxDensity = 1;
+const emitN = (rate, dt) => { const n = rate * dt * fxDensity; return (n | 0) + (Math.random() < n % 1 ? 1 : 0); };
 
 // ------------------------------------------------------------------ maps
 // Arena = rounded rectangle (hx, hz, corner r). Hazards are capsules (segment + radius).
@@ -104,8 +107,8 @@ function onIce(x, z) { return (MAP.ice || []).some(c => Math.hypot(x - c.x, z - 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
+// no shadow map: prop shadows are baked into the ground, heroes cast projected shadows (see paintShadows, heroShadowMat)
+renderer.shadowMap.enabled = false;
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -113,25 +116,45 @@ scene.fog = new THREE.FogExp2(0x160504, 0.016);
 const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 260);
 let zoom = 1;
 
-let baseDpr = 1.5, dprScale = 1;
-function setQuality(q) {
-  baseDpr = Math.min(devicePixelRatio, q === 'low' ? 1 : 1.5); dprScale = 1;
-  renderer.setPixelRatio(baseDpr);
-  if (renderer.shadowMap.enabled !== (q !== 'low')) {
-    renderer.shadowMap.enabled = q !== 'low';
-    scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
-  }
-  resize();
+// Quality ladder used by the automatic resolution system. Slow frames step down one rung at a time
+// (hero shadows, then effect density, then pixel density); smooth frames step back up.
+// Pixel-density changes reallocate the canvas, so they are rate-limited.
+const LADDER = [
+  { shadows: true, fx: 1, dpr: 1 },
+  { shadows: false, fx: 1, dpr: 1 },
+  { shadows: false, fx: 0.6, dpr: 1 },
+  { shadows: false, fx: 0.6, dpr: 0.85 },
+  { shadows: false, fx: 0.45, dpr: 0.7 },
+  { shadows: false, fx: 0.35, dpr: 0.55 },
+];
+let baseDpr = 1.5, rung = 0, minRung = 0, autoQuality = true, heroShadows = true;
+function applyRung() {
+  const L = LADDER[rung];
+  heroShadows = L.shadows; fxDensity = L.fx;
+  const pr = baseDpr * L.dpr;
+  if (Math.abs(renderer.getPixelRatio() - pr) > 1e-3) { renderer.setPixelRatio(pr); resize(); }
 }
-// automatic resolution: drop pixel density when frames get slow, raise it back when smooth
-let perfAcc = 0, perfN = 0, perfGood = 0;
+function setQuality(q) {
+  baseDpr = Math.min(devicePixelRatio, q === 'low' ? 1 : 1.5);
+  rung = minRung = q === 'low' ? 1 : 0; autoQuality = true;
+  applyRung(); resize();
+}
+let perfAcc = 0, perfN = 0, perfGood = 0, lastDprChange = 0;
 function adaptResolution(dt) {
+  if (!autoQuality) return;
   perfAcc += dt; perfN++;
   if (perfAcc < 1) return;
-  const avg = perfAcc / perfN; perfAcc = 0; perfN = 0;
-  if (avg > 1 / 50 && dprScale > 0.55) { dprScale = Math.max(0.55, dprScale - 0.15); perfGood = 0; renderer.setPixelRatio(baseDpr * dprScale); resize(); }
-  else if (avg < 1 / 58) { if (++perfGood >= 4 && dprScale < 1) { dprScale = Math.min(1, dprScale + 0.1); perfGood = 0; renderer.setPixelRatio(baseDpr * dprScale); resize(); } }
-  else perfGood = 0;
+  const avg = perfAcc / perfN, now = performance.now(); perfAcc = 0; perfN = 0;
+  const changesDpr = r => LADDER[r].dpr !== LADDER[rung].dpr;
+  if (avg > 1 / 50 && rung < LADDER.length - 1) {
+    if (changesDpr(rung + 1) && now - lastDprChange < 2500) return;
+    rung++; perfGood = 0; if (changesDpr(rung - 1)) lastDprChange = now; applyRung();
+  } else if (avg < 1 / 58) {
+    // climb back slowly, and never into a rung that was just too slow
+    if (++perfGood >= 5 && rung > minRung && !(changesDpr(rung - 1) && now - lastDprChange < 4000)) {
+      rung--; perfGood = 0; if (changesDpr(rung + 1)) lastDprChange = now; applyRung();
+    }
+  } else perfGood = 0;
 }
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
@@ -143,10 +166,7 @@ addEventListener('resize', resize);
 
 const hemi = new THREE.HemisphereLight(0x5a4a5a, 0x2a0603, 0.55); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffb898, 1.25);
-sun.position.set(12, 30, 9); sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 80 });
-sun.shadow.bias = -0.0006;
+sun.position.set(12, 30, 9);
 scene.add(sun);
 const glowLight = new THREE.PointLight(0xff3a08, 0.8, 70, 1.5); glowLight.position.set(0, -2, 0); scene.add(glowLight);
 
@@ -436,7 +456,6 @@ function fitModel(obj, height) {
   obj.updateMatrixWorld(true); box.setFromObject(obj);
   const c = box.getCenter(new THREE.Vector3());
   obj.position.sub(new THREE.Vector3(c.x, box.min.y, c.z));
-  obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   holder.add(obj); return holder;
 }
 
@@ -481,22 +500,41 @@ function fallbackHero() {
   for (const sx of [-1, 1]) { add(new THREE.ConeGeometry(0.28, 0.8, 4), sx * 0.55, 1.75, 0, 0, -sx * 0.7); add(new THREE.CylinderGeometry(0.07, 0.12, 1.3, 5), sx * 0.75, 1.0, 0.1, 0, sx * 0.25); }
   return fitModel(g, HERO_H);
 }
+// hero shadow: the hero mesh flattened onto the ground along the sun. The stencil keeps overlapping
+// triangles (and overlapping heroes) from darkening the same pixel twice.
+const HERO_SHADOW_Y = 0.025;
+function heroShadowMat(uniforms) {
+  const m = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide,
+    stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilZPass: THREE.ReplaceStencilOperation });
+  m.userData.fow = true; // skip the fog-of-war patch: project_vertex is replaced below
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uArms = uniforms.uArms; sh.uniforms.uTail = uniforms.uTail;
+    sh.vertexShader = ANIM_GLSL_HEAD + sh.vertexShader
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + (heroTemplate ? ANIM_GLSL : ''))
+      .replace('#include <project_vertex>', `vec4 wp = modelMatrix * vec4(transformed, 1.0);
+        const vec3 L = vec3(${SUN_DIR.x.toFixed(4)}, ${SUN_DIR.y.toFixed(4)}, ${SUN_DIR.z.toFixed(4)});
+        wp.xyz -= L * ((wp.y - ${HERO_SHADOW_Y}) / L.y);
+        vec4 mvPosition = viewMatrix * wp; gl_Position = projectionMatrix * mvPosition;`);
+  };
+  m.customProgramCacheKey = () => 'sfa-hero-shadow';
+  return m;
+}
 function cloneHero() {
   const t = heroTemplate || fallbackHero();
-  const c = t.clone(true); const mats = [];
+  const c = t.clone(true); const mats = [], shadows = [];
   const uniforms = { uArms: { value: new THREE.Vector4() }, uTail: { value: new THREE.Vector2() } };
+  const sm = heroShadowMat(uniforms);
   c.traverse(o => {
-    if (o.isMesh) {
+    if (o.isMesh && !o.userData.shadow) {
       o.material = o.material.clone();
       o.material.userData.base = o.material.color.clone();
-      if (heroTemplate) {
-        patchAnim(o.material, uniforms);
-        const dm = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }); patchAnim(dm, uniforms); o.customDepthMaterial = dm;
-      }
+      if (heroTemplate) patchAnim(o.material, uniforms);
       mats.push(o.material);
+      const s = new THREE.Mesh(heroTemplate && heroTemplate.userData.shadowGeo || o.geometry, sm);
+      s.userData.shadow = true; s.renderOrder = 1; s.frustumCulled = false; o.add(s); shadows.push(s);
     }
   });
-  c.userData.mats = mats; c.userData.anim = uniforms; return c;
+  c.userData.mats = mats; c.userData.anim = uniforms; c.userData.shadows = shadows; c.userData.shadowMat = sm; return c;
 }
 
 // props
@@ -519,26 +557,39 @@ function fallbackProp(kind) {
 const NORM_PROPS = {};
 function normProp(kind) { // template fitted to height 1, meshes with their matrices
   if (NORM_PROPS[kind] !== undefined) return NORM_PROPS[kind];
-  const t = PROP_TEMPLATES[kind]; if (!t) return (NORM_PROPS[kind] = null);
+  const t = PROP_TEMPLATES[kind] || PROP_TEMPLATES[PROP_FALLBACK[kind]]; if (!t) return (NORM_PROPS[kind] = null);
   const h = fitModel(t.clone(true), 1); h.updateMatrixWorld(true);
   const parts = []; h.traverse(o => { if (o.isMesh) parts.push({ geo: o.geometry, mat: o.material, m: o.matrixWorld.clone() }); });
   return (NORM_PROPS[kind] = parts);
 }
-function addProps(G, kind, list, cast) { // list: [{x,y,z,h,rot}]
+const PROP_FALLBACK = { treeFar: 'tree' }; // low-poly backdrop variant, if the data file has one
+const propMatrix = (() => { const M = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), s = new THREE.Vector3();
+  return (o, part, out) => { q.setFromAxisAngle(up, o.rot || 0); M.compose(p.set(o.x, o.y || 0, o.z), q, s.set(o.h, o.h, o.h)); return out.multiplyMatrices(M, part.m); }; })();
+function addProps(G, kind, list) { // list: [{x,y,z,h,rot}]
   if (!list.length) return;
   const parts = normProp(kind);
-  if (!parts) { for (const o of list) { const p = makeProp(kind, o.h); p.position.set(o.x, o.y || 0, o.z); p.rotation.y = o.rot || 0; p.traverse(c => { c.castShadow = cast; }); G.add(p); } return; }
-  const M = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), tmp = new THREE.Matrix4();
-  for (const part of parts) {
-    const im = new THREE.InstancedMesh(part.geo, part.mat, list.length);
-    im.userData.sharedGeo = true;
-    list.forEach((o, i) => { q.setFromAxisAngle(up, o.rot || 0); M.compose(new THREE.Vector3(o.x, o.y || 0, o.z), q, new THREE.Vector3(o.h, o.h, o.h)); tmp.multiplyMatrices(M, part.m); im.setMatrixAt(i, tmp); });
-    im.castShadow = cast; im.receiveShadow = true; im.frustumCulled = false; G.add(im);
+  if (!parts) { for (const o of list) { const p = makeProp(kind, o.h); p.position.set(o.x, o.y || 0, o.z); p.rotation.y = o.rot || 0; G.add(p); } return; }
+  // one instanced mesh per 14x14 cell, with its own bounds, so groups off screen are frustum-culled
+  const cells = {};
+  for (const o of list) { const k = Math.floor(o.x / 14) + ',' + Math.floor(o.z / 14); (cells[k] = cells[k] || []).push(o); }
+  const tmp = new THREE.Matrix4(), box = new THREE.Box3(), c = new THREE.Vector3();
+  for (const k in cells) {
+    const cl = cells[k];
+    box.makeEmpty();
+    for (const o of cl) { box.expandByPoint(c.set(o.x - o.h, (o.y || 0), o.z - o.h)); box.expandByPoint(c.set(o.x + o.h, (o.y || 0) + o.h, o.z + o.h)); }
+    for (const part of parts) {
+      const geo = new THREE.BufferGeometry(); // shares the template's GPU buffers, only the bounds differ
+      geo.index = part.geo.index; for (const n in part.geo.attributes) geo.setAttribute(n, part.geo.attributes[n]);
+      geo.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+      const im = new THREE.InstancedMesh(geo, part.mat, cl.length);
+      cl.forEach((o, i) => im.setMatrixAt(i, propMatrix(o, part, tmp)));
+      G.add(im);
+    }
   }
 }
 function makeProp(kind, height) {
-  const t = PROP_TEMPLATES[kind];
-  const obj = t ? t.clone(true) : fallbackProp(kind);
+  const base = PROP_FALLBACK[kind] || kind, t = PROP_TEMPLATES[kind] || PROP_TEMPLATES[base];
+  const obj = t ? t.clone(true) : fallbackProp(base);
   return fitModel(obj, height);
 }
 
@@ -562,7 +613,39 @@ function edgePoints(n, offset) {
   }
   return pts;
 }
-function paintGround(m) {
+// sun direction (pointing at the sun); prop shadows are baked along it, hero shadows projected along it
+const SUN_DIR = new THREE.Vector3(12, 30, 9).normalize();
+// project every caster's triangles onto the ground along the sun, then blur: soft, exact, free at runtime
+function paintShadows(g, toC, casters, S) {
+  const N = S / 2, cv = document.createElement('canvas'); cv.width = cv.height = N;
+  const c = cv.getContext('2d'), M = new THREE.Matrix4(), v = new THREE.Vector3();
+  c.fillStyle = '#000';
+  for (const o of casters) {
+    const parts = normProp(o.kind);
+    if (!parts) { const [x, z] = toC(o.x - SUN_DIR.x * o.h * 0.4, o.z - SUN_DIR.z * o.h * 0.4); c.beginPath(); c.arc(x / 2, z / 2, 20, 0, 7); c.fill(); continue; }
+    for (const part of parts) {
+      propMatrix(o, part, M);
+      const P = part.geo.attributes.position, I = part.geo.index, n = P.count, gx = new Float32Array(n), gz = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        v.fromBufferAttribute(P, i).applyMatrix4(M);
+        const t = Math.max(0, v.y) / SUN_DIR.y, [x, z] = toC(v.x - SUN_DIR.x * t, v.z - SUN_DIR.z * t);
+        gx[i] = x / 2; gz[i] = z / 2;
+      }
+      const tri = I ? I.array : null, cnt = tri ? tri.length : n;
+      // small paths: one huge path with tens of thousands of sub-paths fills very slowly
+      for (let i = 0; i < cnt; i += 3) {
+        if (i % 600 === 0) { if (i) c.fill(); c.beginPath(); }
+        const a = tri ? tri[i] : i; let b = tri ? tri[i + 1] : i + 1, d = tri ? tri[i + 2] : i + 2;
+        // front and back faces project with opposite winding and would cancel under the nonzero rule
+        if ((gx[b] - gx[a]) * (gz[d] - gz[a]) - (gz[b] - gz[a]) * (gx[d] - gx[a]) < 0) { const s = b; b = d; d = s; }
+        c.moveTo(gx[a], gz[a]); c.lineTo(gx[b], gz[b]); c.lineTo(gx[d], gz[d]); c.closePath();
+      }
+      c.fill();
+    }
+  }
+  g.save(); g.globalAlpha = 0.6; g.filter = `blur(${Math.round(S / 400)}px)`; g.drawImage(cv, 0, 0, S, S); g.restore();
+}
+function paintGround(m, casters = []) {
   const W = 2 * (m.hx + 2), D = 2 * (m.hz + 2), S = 2048;
   const toC = (x, z) => [(x + W / 2) / W * S, (z + D / 2) / D * S];
   const pal = {
@@ -598,6 +681,7 @@ function paintGround(m) {
       for (const rr of [9, 15]) { g.beginPath(); g.ellipse(cx, cz, rr / W * S, rr / D * S, 0, 0, 7); g.stroke(); }
       for (let k = 0; k < 24; k++) { const a = k / 24 * 6.28; const [x1, z1] = toC(Math.cos(a) * 9, Math.sin(a) * 9), [x2, z2] = toC(Math.cos(a) * 15, Math.sin(a) * 15); g.beginPath(); g.moveTo(x1, z1); g.lineTo(x2, z2); g.stroke(); }
     }
+    paintShadows(g, toC, casters, S);
     // rune circles
     for (const [x, z] of m.runes) { const [cx, cz] = toC(x, z); g.strokeStyle = 'rgba(0,0,0,0.6)'; g.lineWidth = 10; g.beginPath(); g.arc(cx, cz, 1.4 / W * S, 0, 7); g.stroke(); }
   }, true);
@@ -612,12 +696,16 @@ function paintGround(m) {
 function clearMap() {
   if (!mapGroup) return;
   scene.remove(mapGroup);
-  mapGroup.traverse(o => { if (o.geometry && !o.userData.sharedGeo) o.geometry.dispose(); });
+  // also frees prop-template buffers shared with these meshes; they are re-uploaded on the next build
+  mapGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  for (const d of mapGroup.userData.owned) d.dispose(); // per-map textures and materials (shared ones are never listed)
   mapGroup = null;
 }
 function buildMap(id) {
   clearMap(); MAP = MAPS[id] || MAPS.molten;
   const m = MAP, G = new THREE.Group(); mapGroup = G; scene.add(G);
+  G.userData.owned = [];
+  const own = x => { G.userData.owned.push(x); return x; };
   { const ext = Math.max(m.hx, m.hz) + 4; FOW_U.fowRect.value.set(-ext, -ext, ext * 2, ext * 2); fowCur.fill(0); fowT = 0; }
   scene.background = new THREE.Color(m.sky); scene.fog.color.set(m.fog[0]); scene.fog.density = m.fog[1];
   hemi.color.set(m.hemi[0]); hemi.groundColor.set(m.hemi[1]); hemi.intensity = m.hemi[2];
@@ -625,27 +713,40 @@ function buildMap(id) {
   glowLight.color.set(m.theme === 'molten' ? 0xff3a08 : m.theme === 'river' ? 0x2a6aff : 0x6ab0ff);
   glowLight.intensity = m.theme === 'molten' ? 0.8 : 0.35;
 
+  // props first: their shadows are baked into the ground texture below
+  const lists = {};
+  const put = (kind, o) => { (lists[kind] = lists[kind] || []).push(o); };
+  if (m.outsideTrees) {
+    for (const [x, z] of edgePoints(64, 1.6)) put('treeFar', { x: x + rnd(-1.2, 1.2), z: z + rnd(-1.2, 1.2), h: rnd(4.5, 6.5), rot: rnd(0, 6.28) });
+    for (const [x, z] of edgePoints(26, 8)) put('treeFar', { x: x + rnd(-2, 2), z: z + rnd(-2, 2), h: rnd(5, 7.5), rot: rnd(0, 6.28) });
+  }
+  if (m.theme === 'frozen') for (const [x, z] of edgePoints(22, 1.2)) put('ice', { x, y: -0.2, z, h: rnd(1.6, 2.8), rot: rnd(0, 6.28) });
+  const casters = [];
+  for (const o of m.obstacles) { const p = { kind: o.prop, x: o.x, z: o.z, h: o.h, rot: o.rot !== undefined ? o.rot : rnd(0, 6.28) }; put(o.prop, p); casters.push(p); }
+  for (const o of m.decor) put(o.prop, { x: o.x, y: m.edge === 'lava' ? -0.8 : 0, z: o.z, h: o.h, rot: o.rot || 0 });
+
   // ground
-  const tex = paintGround(m);
+  const tex = paintGround(m, casters);
+  own(tex.color); own(tex.glow);
   const shape = m.r >= Math.min(m.hx, m.hz) ? circleShape(m.hx) : roundedRectShape(m.hx, m.hz, m.r);
   const gGeo = new THREE.ShapeGeometry(shape, 48);
   const pa = gGeo.attributes.position, uv = gGeo.attributes.uv;
   for (let i = 0; i < pa.count; i++) uv.setXY(i, (pa.getX(i) + tex.W / 2) / tex.W, (pa.getY(i) + tex.D / 2) / tex.D);
-  const ground = new THREE.Mesh(gGeo, new THREE.MeshStandardMaterial({ map: tex.color, emissiveMap: tex.glow, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: m.theme === 'frozen' ? 0.55 : 0.9, metalness: 0.05 }));
-  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; G.add(ground);
+  const ground = new THREE.Mesh(gGeo, own(new THREE.MeshStandardMaterial({ map: tex.color, emissiveMap: tex.glow, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: m.theme === 'frozen' ? 0.55 : 0.9, metalness: 0.05 })));
+  ground.rotation.x = -Math.PI / 2; G.add(ground);
   // cliff sides
   const depth = m.edge === 'abyss' ? 16 : 4;
   const cliffGeo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 48 });
-  const cliffMat = new THREE.MeshStandardMaterial({ color: m.theme === 'frozen' ? 0x2a3646 : 0x17110f, roughness: 1, emissive: m.theme === 'molten' ? 0x501004 : 0x000000, emissiveIntensity: 0.5 });
-  const cliff = new THREE.Mesh(cliffGeo, [new THREE.MeshBasicMaterial({ visible: false }), cliffMat]);
+  const cliffMat = own(new THREE.MeshStandardMaterial({ color: m.theme === 'frozen' ? 0x2a3646 : 0x17110f, roughness: 1, emissive: m.theme === 'molten' ? 0x501004 : 0x000000, emissiveIntensity: 0.5 }));
+  const cliff = new THREE.Mesh(cliffGeo, [own(new THREE.MeshBasicMaterial({ visible: false })), cliffMat]);
   cliff.rotation.x = Math.PI / 2; cliff.position.y = -0.01; G.add(cliff);
 
   // outside
   if (m.edge === 'lava') { const lava = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), lavaMat); lava.rotation.x = -Math.PI / 2; lava.position.y = -1.4; G.add(lava); }
   if (m.edge === 'abyss') { const v = new THREE.Mesh(new THREE.PlaneGeometry(300, 300), voidMat); v.rotation.x = -Math.PI / 2; v.position.y = -18; G.add(v); }
   if (m.edge === 'wall') {
-    const outer = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x07090a, roughness: 1 }));
-    outer.rotation.x = -Math.PI / 2; outer.position.y = -0.03; outer.receiveShadow = true; G.add(outer);
+    const outer = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), own(new THREE.MeshStandardMaterial({ color: 0x07090a, roughness: 1 })));
+    outer.rotation.x = -Math.PI / 2; outer.position.y = -0.03; G.add(outer);
   }
   // hazard ribbons
   for (const h of m.hazards) {
@@ -654,15 +755,15 @@ function buildMap(id) {
     rib.rotation.x = -Math.PI / 2; rib.rotation.z = -Math.atan2(dz, dx);
     rib.position.set((h.a[0] + h.b[0]) / 2, h.type === 'lava' ? 0.02 : 0.015, (h.a[1] + h.b[1]) / 2); rib.renderOrder = 1; G.add(rib);
   }
+  const bm = m.bridges ? own(new THREE.MeshStandardMaterial({ color: 0x0f0b0a, roughness: 0.9, flatShading: true })) : null;
   (m.bridges || []).forEach(([x, z]) => {
-    const bm = new THREE.MeshStandardMaterial({ color: 0x0f0b0a, roughness: 0.9, flatShading: true, map: null });
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.3, 4.2), bm); slab.position.set(x, 0.05, z); slab.receiveShadow = slab.castShadow = true; G.add(slab);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.3, 4.2), bm); slab.position.set(x, 0.05, z); G.add(slab);
     for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.7, 0.4), bm); post.position.set(x + sx * 2.1, 0.35, z - 2); G.add(post); const p2 = post.clone(); p2.position.z = z + 2; G.add(p2); }
   });
   (m.ice || []).forEach(c => { const ice = new THREE.Mesh(new THREE.CircleGeometry(c.r, 64), iceMat); ice.rotation.x = -Math.PI / 2; ice.position.set(c.x, 0.02, c.z); G.add(ice); });
 
   // rim rocks / walls
-  const rockMat = new THREE.MeshStandardMaterial({ color: m.theme === 'frozen' ? 0x161c26 : m.theme === 'river' ? 0x14160f : 0x070505, roughness: 0.95, metalness: 0.05, flatShading: true });
+  const rockMat = own(new THREE.MeshStandardMaterial({ color: m.theme === 'frozen' ? 0x161c26 : m.theme === 'river' ? 0x14160f : 0x070505, roughness: 0.95, metalness: 0.05, flatShading: true }));
   const rockGeo = new THREE.DodecahedronGeometry(1, 1);
   { const p = rockGeo.attributes.position; for (let i = 0; i < p.count; i++) { const k = 0.75 + ((Math.sin(p.getX(i) * 12.9 + p.getY(i) * 78.2 + p.getZ(i) * 37.7) * 43758.5) % 1 + 1) % 1 * 0.45; p.setXYZ(i, p.getX(i) * k, p.getY(i) * k, p.getZ(i) * k); } rockGeo.computeVertexNormals(); }
   const wall = m.edge === 'wall';
@@ -676,18 +777,8 @@ function buildMap(id) {
       mm.compose(new THREE.Vector3(x + x / l * (out + rnd(-0.2, 0.6)), wall ? rnd(-0.3, 0.4) + j * 0.6 : rnd(-0.9, -0.3), z + z / l * (out + rnd(-0.2, 0.6))), q, new THREE.Vector3(s, s * rnd(0.7, 1.3), s));
       rocks.setMatrixAt(k++, mm);
     } }
-  rocks.castShadow = rocks.receiveShadow = true; G.add(rocks);
-  const lists = {};
-  const put = (kind, cast, o) => { const k = kind + (cast ? '|s' : '|n'); (lists[k] = lists[k] || []).push(o); };
-  if (m.outsideTrees) {
-    for (const [x, z] of edgePoints(64, 1.6)) put('tree', false, { x: x + rnd(-1.2, 1.2), z: z + rnd(-1.2, 1.2), h: rnd(4.5, 6.5), rot: rnd(0, 6.28) });
-    for (const [x, z] of edgePoints(26, 8)) put('tree', false, { x: x + rnd(-2, 2), z: z + rnd(-2, 2), h: rnd(5, 7.5), rot: rnd(0, 6.28) });
-  }
-  if (m.theme === 'frozen') for (const [x, z] of edgePoints(22, 1.2)) put('ice', false, { x, y: -0.2, z, h: rnd(1.6, 2.8), rot: rnd(0, 6.28) });
-  for (const o of m.obstacles) put(o.prop, true, { x: o.x, z: o.z, h: o.h, rot: o.rot !== undefined ? o.rot : rnd(0, 6.28) });
-  for (const o of m.decor) put(o.prop, false, { x: o.x, y: m.edge === 'lava' ? -0.8 : 0, z: o.z, h: o.h, rot: o.rot || 0 });
-  for (const k in lists) { const [kind, sh] = k.split('|'); addProps(G, kind, lists[k], sh === 's'); }
-  rocks.castShadow = false;
+  G.add(rocks);
+  for (const kind in lists) addProps(G, kind, lists[kind]);
   // ambient emitters
   m._emit = [];
   for (const o of m.obstacles) if (o.prop === 'obelisk') m._emit.push([o.x, o.h * 0.75, o.z]);
@@ -713,14 +804,18 @@ class Unit {
     const ring = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: this.color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.6 }));
     ring.rotation.x = -Math.PI / 2; ring.scale.setScalar(0.95); ring.position.y = 0.06; this.root.add(ring); this.ring = ring;
     const shadow = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: scorchTex, transparent: true, depthWrite: false, opacity: 0.6 }));
-    shadow.rotation.x = -Math.PI / 2; shadow.scale.setScalar(0.7); shadow.position.y = 0.04; this.root.add(shadow);
+    shadow.rotation.x = -Math.PI / 2; shadow.scale.setScalar(0.7); shadow.position.y = 0.04; this.root.add(shadow); this.blob = shadow;
     this.tele = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: this.color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
     this.tele.rotation.x = -Math.PI / 2; this.tele.visible = false; scene.add(this.tele);
     this.label = document.createElement('div'); this.label.className = 'ulabel';
     this.label.innerHTML = `<span style="color:${this.color}">${name}</span><div class="hb"><div></div></div>`;
     labelsEl.appendChild(this.label); this.hbEl = this.label.querySelector('.hb div');
   }
-  dispose() { scene.remove(this.root); scene.remove(this.tele); this.label.remove(); }
+  dispose() {
+    scene.remove(this.root); scene.remove(this.tele); this.label.remove();
+    for (const m of this.model.userData.mats) m.dispose();
+    this.model.userData.shadowMat.dispose(); this.ring.material.dispose(); this.blob.material.dispose(); this.tele.material.dispose();
+  }
   get speed() { let s = CFG.speed * (this.buffs.haste > 0 ? 1.6 : 1); const h = hazardAt(this.pos.x, this.pos.z); if (h && h.type === 'water') s *= 0.85; return s; }
   moveTo(x, z) { if (!this.alive || this.cast) return; this.moveTarget = new THREE.Vector2(x, z); this.faceAngle = null; }
   razeCenter(slot, facing = this.facing) {
@@ -848,6 +943,8 @@ class Unit {
     this.root.position.set(this.pos.x, 0, this.pos.z);
     this.flash = Math.max(0, this.flash - dt * 5);
     const m = this.model;
+    for (const s of m.userData.shadows) s.visible = heroShadows;
+    this.blob.material.opacity = heroShadows ? 0.35 : 0.6;
     m.rotation.y = this.facing;
     if (alive) {
       this.deathT = 0;
@@ -860,14 +957,14 @@ class Unit {
       this.ring.material.opacity = this.prot > 0 ? 0.3 + 0.3 * Math.sin(t * 20) : 0.6;
       this.ring.material.color.set(this.buffs.dd > 0 ? '#4a8aff' : this.color);
       const fx = Math.sin(this.facing), fz = Math.cos(this.facing), sv = this.seen;
-      if (sv && Math.random() < 0.7) particles.spawn(this.pos.x - fx * 0.15 + rnd(-0.15, 0.15), hover + 0.15, this.pos.z - fz * 0.15 + rnd(-0.15, 0.15), rnd(-0.3, 0.3) - this.vel.x * 0.15, rnd(-0.2, 0.6), rnd(-0.3, 0.3) - this.vel.z * 0.15, rnd(0.4, 0.8), 0.7, 0.1, FIRE0, FIRE1, 0.5, 1);
-      if (sv && Math.random() < this.souls / CFG.maxSouls * 0.8) { const a = rnd(0, 7); particles.spawn(this.pos.x + Math.cos(a) * 0.8, rnd(0.6, 2), this.pos.z + Math.sin(a) * 0.8, 0, rnd(0.3, 1), 0, 0.9, 0.35, 0.05, SOUL0, [0.5, 0, 0.1], 0.3, 0); }
-      if (sv && this.buffs.haste > 0 && Math.random() < 0.6) particles.spawn(this.pos.x, rnd(0.3, 1.8), this.pos.z, -this.vel.x * 0.3, 0.2, -this.vel.z * 0.3, 0.4, 0.5, 0.1, [1, 0.25, 0.15], [0.3, 0, 0], 0, 1);
-      if (sv && this.buffs.regen > 0 && Math.random() < 0.5) particles.spawn(this.pos.x + rnd(-0.6, 0.6), 0.2, this.pos.z + rnd(-0.6, 0.6), 0, rnd(1, 2), 0, 0.8, 0.4, 0.1, [0.3, 1, 0.4], [0, 0.3, 0.1], 0, 0);
+      if (sv) for (let n = emitN(42, dt); n > 0; n--) particles.spawn(this.pos.x - fx * 0.15 + rnd(-0.15, 0.15), hover + 0.15, this.pos.z - fz * 0.15 + rnd(-0.15, 0.15), rnd(-0.3, 0.3) - this.vel.x * 0.15, rnd(-0.2, 0.6), rnd(-0.3, 0.3) - this.vel.z * 0.15, rnd(0.4, 0.8), 0.7, 0.1, FIRE0, FIRE1, 0.5, 1);
+      if (sv) for (let n = emitN(this.souls / CFG.maxSouls * 48, dt); n > 0; n--) { const a = rnd(0, 7); particles.spawn(this.pos.x + Math.cos(a) * 0.8, rnd(0.6, 2), this.pos.z + Math.sin(a) * 0.8, 0, rnd(0.3, 1), 0, 0.9, 0.35, 0.05, SOUL0, [0.5, 0, 0.1], 0.3, 0); }
+      if (sv && this.buffs.haste > 0) for (let n = emitN(36, dt); n > 0; n--) particles.spawn(this.pos.x, rnd(0.3, 1.8), this.pos.z, -this.vel.x * 0.3, 0.2, -this.vel.z * 0.3, 0.4, 0.5, 0.1, [1, 0.25, 0.15], [0.3, 0, 0], 0, 1);
+      if (sv && this.buffs.regen > 0) for (let n = emitN(30, dt); n > 0; n--) particles.spawn(this.pos.x + rnd(-0.6, 0.6), 0.2, this.pos.z + rnd(-0.6, 0.6), 0, rnd(1, 2), 0, 0.8, 0.4, 0.1, [0.3, 1, 0.4], [0, 0.3, 0.1], 0, 0);
       if (this.cast) this.tele.visible = sv;
       if (this.cast && sv) { // claws gather shadow-fire during the wind-up
         const k = 1 - this.cast.t / CFG.castTime, rx = fz, rz = -fx;
-        for (const s of [-1, 1]) particles.spawn(this.pos.x + rx * s * 0.8 + fx * 0.4, 1.0 + k * 1.6, this.pos.z + rz * s * 0.8 + fz * 0.4, rnd(-0.3, 0.3), rnd(0, 0.5), rnd(-0.3, 0.3), 0.3, 0.6, 0.1, this.buffs.dd > 0 ? [0.4, 0.6, 1] : [1, 0.4, 0.1], [0.3, 0, 0], 0, 1);
+        for (let n = emitN(60, dt); n > 0; n--) for (const s of [-1, 1]) particles.spawn(this.pos.x + rx * s * 0.8 + fx * 0.4, 1.0 + k * 1.6, this.pos.z + rz * s * 0.8 + fz * 0.4, rnd(-0.3, 0.3), rnd(0, 0.5), rnd(-0.3, 0.3), 0.3, 0.6, 0.1, this.buffs.dd > 0 ? [0.4, 0.6, 1] : [1, 0.4, 0.1], [0.3, 0, 0], 0, 1);
         this.tele.scale.setScalar(CFG.razeR * (0.55 + 0.45 * k)); this.tele.material.opacity = 0.25 + 0.5 * k;
       }
     } else {
@@ -960,7 +1057,7 @@ function updateOrbs(dt) {
     const tgt = new THREE.Vector3(o.to.pos.x, 1.3, o.to.pos.z), d = tgt.clone().sub(o.p), dist = d.length();
     o.v.multiplyScalar(Math.max(0, 1 - 2.5 * dt)).add(d.normalize().multiplyScalar(40 * dt * Math.min(1, o.t * 2)));
     o.p.addScaledVector(o.v, dt);
-    particles.spawn(o.p.x, o.p.y, o.p.z, 0, 0, 0, 0.35, 0.7, 0.05, [1, 0.55, 0.3], [0.6, 0, 0.2], 0, 0);
+    for (let n = emitN(60, dt); n > 0; n--) particles.spawn(o.p.x, o.p.y, o.p.z, 0, 0, 0, 0.35, 0.7, 0.05, [1, 0.55, 0.3], [0.6, 0, 0.2], 0, 0);
     if (dist < 0.5 || o.t > 3) orbs.splice(i, 1);
   }
 }
@@ -1202,11 +1299,19 @@ function endGame(w) {
 }
 $('optVol').value = Math.round(AUD.volume * 100);
 $('optVol').oninput = e => { AUD.volume = e.target.value / 100; AUD.muted = false; };
+// options that define the match: changing one while paused means a new game, the rest apply on resume
+const MATCH_OPTS = { optMap: 'map', optBots: 'bots', optDiff: 'diff', optKills: 'kills', optFog: 'fog' };
+const matchChanged = () => Object.entries(MATCH_OPTS).some(([id, k]) => $(id).value !== String(settings[k]));
+const paused = () => state === 'menu' && units.length && $('play').textContent !== 'PLAY';
 $('play').onclick = () => {
-  if ($('play').textContent === 'RESUME' && units.length && $('optMap').value === settings.map) { $('menu').classList.add('hidden'); state = 'play'; AUD.init(); AUD.startAmbient(MAP.theme); }
-  else startGame();
+  if (paused() && !matchChanged()) {
+    settings.move = $('optMove').value;
+    if ($('optGfx').value !== settings.gfx) { settings.gfx = $('optGfx').value; setQuality(settings.gfx); }
+    $('menu').classList.add('hidden'); state = 'play'; AUD.init(); AUD.startAmbient(MAP.theme);
+  } else startGame();
 };
 $('again').onclick = () => { $('play').textContent = 'PLAY'; startGame(); };
+for (const id of Object.keys(MATCH_OPTS)) $(id).addEventListener('change', () => { if (paused()) $('play').textContent = matchChanged() ? 'NEW GAME' : 'RESUME'; });
 $('optMap').onchange = () => { if (state === 'menu' && !units.length) buildMap($('optMap').value); };
 
 // ------------------------------------------------------------------ main loop
@@ -1240,17 +1345,17 @@ function frame(now) {
   // ambience per map
   const m = MAP;
   if (m.theme === 'molten') {
-    for (let i = 0; i < 3; i++) { const a = rnd(0, 7), r = rnd(m.hx - 2, m.hx + 12); particles.spawn(Math.cos(a) * r, -1, Math.sin(a) * r * 0.85, rnd(-0.3, 0.3), rnd(1, 2.5), rnd(-0.3, 0.3), rnd(2, 4), rnd(0.15, 0.35), 0.05, EMBER, [0.3, 0.02, 0], 0.2, 0); }
-    for (const h of m.hazards) if (Math.random() < 0.5) { const t = Math.random(); particles.spawn(h.a[0] + (h.b[0] - h.a[0]) * t, 0.1, h.a[1] + rnd(-h.r, h.r), 0, rnd(0.8, 2), 0, rnd(1, 2), rnd(0.2, 0.5), 0.05, EMBER, [0.3, 0.02, 0], 0.2, 0); }
-    for (const e of m._emit || []) if (Math.random() < 0.15) particles.spawn(e[0] + rnd(-0.3, 0.3), e[1] * rnd(0.3, 1), e[2] + rnd(-0.3, 0.3), 0, rnd(0.3, 0.8), 0, 1.2, 0.3, 0.05, [1, 0.15, 0.05], [0.3, 0, 0], 0, 0);
+    for (let n = emitN(180, dt); n > 0; n--) { const a = rnd(0, 7), r = rnd(m.hx - 2, m.hx + 12); particles.spawn(Math.cos(a) * r, -1, Math.sin(a) * r * 0.85, rnd(-0.3, 0.3), rnd(1, 2.5), rnd(-0.3, 0.3), rnd(2, 4), rnd(0.15, 0.35), 0.05, EMBER, [0.3, 0.02, 0], 0.2, 0); }
+    for (const h of m.hazards) for (let n = emitN(30, dt); n > 0; n--) { const t = Math.random(); particles.spawn(h.a[0] + (h.b[0] - h.a[0]) * t, 0.1, h.a[1] + rnd(-h.r, h.r), 0, rnd(0.8, 2), 0, rnd(1, 2), rnd(0.2, 0.5), 0.05, EMBER, [0.3, 0.02, 0], 0.2, 0); }
+    for (const e of m._emit || []) for (let n = emitN(9, dt); n > 0; n--) particles.spawn(e[0] + rnd(-0.3, 0.3), e[1] * rnd(0.3, 1), e[2] + rnd(-0.3, 0.3), 0, rnd(0.3, 0.8), 0, 1.2, 0.3, 0.05, [1, 0.15, 0.05], [0.3, 0, 0], 0, 0);
   } else if (m.theme === 'river') {
-    for (let i = 0; i < 1; i++) if (Math.random() < 0.6) particles.spawn(rnd(-m.hx, m.hx), rnd(0.5, 3), rnd(-m.hz, m.hz), rnd(-0.3, 0.3), rnd(-0.1, 0.2), rnd(-0.3, 0.3), rnd(2, 4), 0.18, 0.1, [0.6, 1, 0.4], [0.1, 0.3, 0.05], 0, 0);
-    if (Math.random() < 0.3) { const t = Math.random(), h = m.hazards[0]; smoke.spawn(h.a[0] + (h.b[0] - h.a[0]) * t, 0.3, h.a[1] + (h.b[1] - h.a[1]) * t + rnd(-2, 2), 0.3, 0.1, 0.2, 4, 2, 4, [0.12, 0.16, 0.22], [0.05, 0.07, 0.1], 0, 0); }
+    for (let n = emitN(36, dt); n > 0; n--) particles.spawn(rnd(-m.hx, m.hx), rnd(0.5, 3), rnd(-m.hz, m.hz), rnd(-0.3, 0.3), rnd(-0.1, 0.2), rnd(-0.3, 0.3), rnd(2, 4), 0.18, 0.1, [0.6, 1, 0.4], [0.1, 0.3, 0.05], 0, 0);
+    for (let n = emitN(18, dt); n > 0; n--) { const t = Math.random(), h = m.hazards[0]; smoke.spawn(h.a[0] + (h.b[0] - h.a[0]) * t, 0.3, h.a[1] + (h.b[1] - h.a[1]) * t + rnd(-2, 2), 0.3, 0.1, 0.2, 4, 2, 4, [0.12, 0.16, 0.22], [0.05, 0.07, 0.1], 0, 0); }
   } else {
-    for (let i = 0; i < 4; i++) { const cx = camLook.x + rnd(-25, 25), cz = camLook.z + rnd(-20, 25); particles.spawn(cx, rnd(10, 14), cz, rnd(-0.6, 0.2), -rnd(1.2, 2), rnd(-0.3, 0.3), 7, 0.14, 0.14, [0.7, 0.8, 0.95], [0.5, 0.6, 0.75], 0, 0); }
-    if (Math.random() < 0.4) { const p = edgePointsCache[Math.random() * edgePointsCache.length | 0]; if (p) smoke.spawn(p[0], -1, p[1], 0, rnd(0.5, 1.2), 0, 3, 2, 4, [0.2, 0.28, 0.38], [0.08, 0.1, 0.14], 0, 0); }
+    for (let n = emitN(240, dt); n > 0; n--) { const cx = camLook.x + rnd(-25, 25), cz = camLook.z + rnd(-20, 25); particles.spawn(cx, rnd(10, 14), cz, rnd(-0.6, 0.2), -rnd(1.2, 2), rnd(-0.3, 0.3), 7, 0.14, 0.14, [0.7, 0.8, 0.95], [0.5, 0.6, 0.75], 0, 0); }
+    for (let n = emitN(24, dt); n > 0; n--) { const p = edgePointsCache[Math.random() * edgePointsCache.length | 0]; if (p) smoke.spawn(p[0], -1, p[1], 0, rnd(0.5, 1.2), 0, 3, 2, 4, [0.2, 0.28, 0.38], [0.08, 0.1, 0.14], 0, 0); }
   }
-  if (rune) { runeGem.rotation.y += dt * 2; runeGem.position.y = 1.1 + Math.sin(time * 3) * 0.15; runeRing.material.opacity = 0.6 + 0.3 * Math.sin(time * 5); if (Math.random() < 0.4) { const c = new THREE.Color(RUNES[rune.type].color); particles.spawn(rune.x + rnd(-0.4, 0.4), 0.3, rune.z + rnd(-0.4, 0.4), 0, rnd(1, 2), 0, 0.8, 0.35, 0.05, [c.r, c.g, c.b], [0, 0, 0], 0, 0); } }
+  if (rune) { runeGem.rotation.y += dt * 2; runeGem.position.y = 1.1 + Math.sin(time * 3) * 0.15; runeRing.material.opacity = 0.6 + 0.3 * Math.sin(time * 5); for (let n = emitN(24, dt); n > 0; n--) { const c = new THREE.Color(RUNES[rune.type].color); particles.spawn(rune.x + rnd(-0.4, 0.4), 0.3, rune.z + rnd(-0.4, 0.4), 0, rnd(1, 2), 0, 0.8, 0.35, 0.05, [c.r, c.g, c.b], [0, 0, 0], 0, 0); } }
   particles.update(dt); smoke.update(dt);
   for (const f of fx) {
     if (!f.mesh.visible) continue;
@@ -1295,10 +1400,14 @@ function prewarm() { // compile every effect shader now, not on the first raze/r
 // ------------------------------------------------------------------ boot
 async function boot() {
   $('play').disabled = true; $('loadState').textContent = 'Summoning the Shadow Fiend…';
-  const P = window.SFA_PROPS || {};
-  const [hero, ...props] = await Promise.all([parseGLB(window.HERO_GLB_B64), ...['obelisk', 'gargoyle', 'column', 'tree', 'ice'].map(k => parseGLB(P[k]))]);
-  if (hero) heroTemplate = fitModel(hero, HERO_H);
-  ['obelisk', 'gargoyle', 'column', 'tree', 'ice'].forEach((k, i) => { if (props[i]) PROP_TEMPLATES[k] = props[i]; });
+  const P = window.SFA_PROPS || {}, kinds = ['obelisk', 'gargoyle', 'column', 'tree', 'treeFar', 'ice'];
+  const [hero, heroShadow, ...props] = await Promise.all([parseGLB(window.HERO_GLB_B64), parseGLB(window.HERO_SHADOW_GLB_B64), ...kinds.map(k => parseGLB(P[k]))]);
+  if (hero) {
+    heroTemplate = fitModel(hero, HERO_H);
+    // low-poly shadow caster, in the same model space as the hero mesh
+    heroShadow && heroShadow.traverse(o => { if (o.isMesh) heroTemplate.userData.shadowGeo = o.geometry; });
+  }
+  kinds.forEach((k, i) => { if (props[i]) PROP_TEMPLATES[k] = props[i]; });
   buildMap($('optMap').value);
   edgePointsCache = edgePoints(80, 0.5);
   setQuality('high');
@@ -1309,5 +1418,7 @@ buildMap = function (id) { origBuild(id); edgePointsCache = edgePoints(80, 0.5);
 setQuality('high');
 requestAnimationFrame(frame);
 boot();
-window.__game = { renderer, get fogOn() { return fogOn; },  get units() { return units; }, get state() { return state; }, get map() { return MAP; }, get rune() { return rune; }, CFG, buildMap: id => buildMap(id) };
+window.__game = { renderer, get fogOn() { return fogOn; },  get units() { return units; }, get state() { return state; }, get map() { return MAP; }, get rune() { return rune; }, CFG, buildMap: id => buildMap(id),
+  get quality() { return { rung, autoQuality, heroShadows, fxDensity, pixelRatio: renderer.getPixelRatio() }; },
+  forceQuality(pr) { autoQuality = false; rung = 0; baseDpr = pr; applyRung(); } }; // for dev/bench.js
 })();
