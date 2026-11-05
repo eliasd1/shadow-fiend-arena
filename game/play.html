@@ -155,6 +155,12 @@ button.ghost { background: transparent; border-color: #6b1d12; color: #c9a898; }
 #endWait { color: #c9a898; margin-top: 14px; }
 select:disabled { opacity: .5; }
 
+/* inventory drag and the DotA-style aiming cursor */
+#invGhost { position: fixed; width: 44px; height: 44px; pointer-events: none; z-index: 50; opacity: 0.85; border: 1px solid #c8962a; border-radius: 3px; }
+.islot.dragging img { opacity: 0.3; }
+.islot.drop { border-color: #ffd04a; box-shadow: 0 0 8px #ffd04a90 inset; }
+body.aiming canvas { cursor: crosshair; }
+
 </style>
 </head>
 <body>
@@ -180,7 +186,7 @@ select:disabled { opacity: .5; }
   <div id="err"></div>
   <div id="shopHint">You are at the Soul Merchant: press <b>B</b> to trade</div>
   <div id="respawn"></div>
-  <div id="help">Right-click: move &nbsp;·&nbsp; Z / X / C: near / mid / far raze (fires the way you face) &nbsp;·&nbsp; R: Requiem of Souls &nbsp;·&nbsp; 1–6: items &nbsp;·&nbsp; B: shop &nbsp;·&nbsp; S: stop &nbsp;·&nbsp; M: mute &nbsp;·&nbsp; Wheel: zoom &nbsp;·&nbsp; Esc: menu &nbsp;·&nbsp; Grab runes for Haste, Double Damage or Regeneration</div>
+  <div id="help">Right-click: move &nbsp;·&nbsp; Z / X / C: near / mid / far raze (fires the way you face) &nbsp;·&nbsp; R: Requiem of Souls (also fires when you die) &nbsp;·&nbsp; 1–6: items &nbsp;·&nbsp; B: shop &nbsp;·&nbsp; S: stop &nbsp;·&nbsp; M: mute &nbsp;·&nbsp; Wheel: zoom &nbsp;·&nbsp; Esc: menu &nbsp;·&nbsp; Grab runes for Haste, Double Damage or Regeneration</div>
 </div>
 <div id="vignette"></div>
 <div id="flash"></div>
@@ -197,7 +203,7 @@ select:disabled { opacity: .5; }
   <div class="panel">
     <h1>SHADOW FIEND <span>ARENA</span></h1>
     <p class="tag">Raze. Predict. Harvest their souls.</p>
-    <div class="row"><label>Map</label><select id="optMap"><option value="molten" selected>Scourge Pit (lava)</option><option value="river">Ancient River (night forest)</option><option value="frozen">Frozen Throne (ice)</option><option value="grave">Forsaken Graveyard (night)</option></select></div>
+    <div class="row"><label>Map</label><select id="optMap"><option value="river" selected>Mid Lane (river duel, day)</option><option value="molten">Scourge Pit (lava)</option><option value="frozen">Frozen Throne (ice)</option><option value="grave">Forsaken Graveyard (night)</option></select></div>
     <div class="row"><label>Fog of war</label><select id="optFog"><option value="on" selected>On</option><option value="off">Off</option></select></div>
     <div class="row"><label>Bots</label><select id="optBots"><option>1</option><option>2</option><option>3</option><option selected>5</option><option>7</option></select></div>
     <div class="row"><label>Difficulty</label><select id="optDiff"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select></div>
@@ -4729,6 +4735,9 @@ function mirror(list) { return list.concat(list.map(o => Object.assign({}, o, { 
 const mirT = t => t.r !== undefined ? { ...t, x: -t.x, z: -t.z } : t.rect ? { ...t, rect: [-t.rect[2], -t.rect[3], -t.rect[0], -t.rect[1]] } : { ...t, poly: t.poly.map(([x, z]) => [-x, -z]) };
 const mirR = r => ({ ...r, a: [-r.a[0], -r.a[1]], b: [-r.b[0], -r.b[1]] });
 const both = (list, f) => list.concat(list.map(f));
+// the mirrored half of a two-sided map gets the Dusk version of each prop
+const DUSK_PROP = { canopy: 'tree', spireDawn: 'spireDusk' };
+const duskSide = list => list.map((o, i) => i < list.length / 2 ? o : { ...o, prop: DUSK_PROP[o.prop] || o.prop });
 const MAPS = {
   // lava river with three bridges; each bank has a raised bastion in its back corner and a small lookout
   molten: {
@@ -4761,26 +4770,24 @@ const MAPS = {
     ]),
     runes: [[-12, 0], [12, 0]],
   },
-  // a diagonal river that slows you; a forest bluff on each side holds the Soul Merchant
+  // the classic mid-lane duel in daylight: a shallow river with the two rune spots, a cobbled lane up to a spire on
+  // each bluff, lush summer forest on the Dawn side (bottom left) and blighted dead wood on the Dusk side (top right)
   river: {
-    name: 'Ancient River', theme: 'river', sight: 13, hx: 23, hz: 18, r: 5, edge: 'wall',
-    sky: 0x05080d, fog: [0x0a1220, 0.016], hemi: [0x5a6a9a, 0x161208, 0.9], sun: [0xa8bcff, 1.35], exposure: 1.3,
+    name: 'Mid Lane', theme: 'river', sight: 13, hx: 23, hz: 18, r: 5, edge: 'wall', outer: 0x121a0c,
+    sky: 0x0e1a10, fog: [0x2a3a26, 0.011], hemi: [0xcfdcf0, 0x3a2e1c, 0.75], sun: [0xfff0d4, 1.35], exposure: 0.95,
     hazards: [{ type: 'water', a: [-30, -16.2], b: [30, 16.2], r: 2.7 }],
+    dawn: (x, z) => z * 60 - x * 32.4 > 0, // which side of the river a point is on
+    lane: [[-21, 13.6], [-14.6, 9.4], [-8.6, 5.6], [-6.5, 3.5], [0, 0], [6.5, -3.5], [8.6, -5.6], [14.6, -9.4], [21, -13.6]],
     terraces: both([{ x: -13, z: 10, r: 6.2, h: 1.6 }], mirT),
     ramps: both([{ a: [-6.5, 3.5], b: [-8.62, 5.62], w: 3.2 }, { a: [-3.6, 10], b: [-6.8, 10], w: 3.0 }], mirR),
-    obstacles: mirror([
-      { prop: 'tree', x: -14, z: 7.5, r: 0.8, h: 4.6 }, { prop: 'tree', x: -11.5, z: 9.6, r: 0.8, h: 4.2 }, { prop: 'tree', x: -16.4, z: 9.6, r: 0.8, h: 5.0 },
-      { prop: 'tree', x: -4, z: 13.5, r: 0.8, h: 4.4 }, { prop: 'tree', x: -2.2, z: 15, r: 0.8, h: 4.8 }, { prop: 'tree', x: -20, z: 1.5, r: 0.8, h: 4.5 },
-      { prop: 'column', x: -9.5, z: 0.5, r: 1.0, h: 3.6 }, { prop: 'column', x: -16, z: -3, r: 1.0, h: 3.2 }, { prop: 'column', x: 6, z: 11.5, r: 1.0, h: 3.8 },
+    obstacles: duskSide(mirror([
+      { prop: 'spireDawn', x: -9.6, z: 9.6, r: 1.15, h: 6.4, rot: 0.6 }, { prop: 'canopy', x: -17, z: 7.2, r: 0.85, h: 4.6 },
+      { prop: 'canopy', x: -4, z: 13.5, r: 0.85, h: 4.4 }, { prop: 'canopy', x: -2.2, z: 15, r: 0.85, h: 4.8 }, { prop: 'canopy', x: -20, z: 1.5, r: 0.85, h: 4.5 },
+      { prop: 'canopy', x: -9.5, z: 0.5, r: 0.9, h: 4.2 }, { prop: 'canopy', x: -16, z: -3, r: 0.9, h: 4.6 }, { prop: 'canopy', x: 6, z: 11.5, r: 0.9, h: 4.4 },
       { prop: 'shop', x: -15.2, z: 13, r: 1.8, h: 3.6, rot: Math.PI * 0.75 },
       { prop: 'brazier', x: -12.6, z: 14.6, r: 0.45, h: 1.6 }, { prop: 'brazier', x: -17.6, z: 11.2, r: 0.45, h: 1.6 }, // braziers by the merchant
-    ]),
-    decor: mirror([
-      { prop: 'gargoyle', x: -27, z: -17, h: 4.2, rot: 0.8 }, { prop: 'gargoyle', x: 27, z: 17.5, h: 4.2, rot: -2.4 },
-      { prop: 'column', x: -25.5, z: 6, h: 4.5 }, { prop: 'column', x: -10, z: 21.5, h: 3.8 },
-      { prop: 'moonBasin', x: -26.5, z: -3, h: 1.6, opt: true }, { prop: 'ruinArch', x: -3, z: -21.5, h: 5, opt: true },
-      { prop: 'stoneLantern', x: -24.5, z: -11, h: 2.2, opt: true }, { prop: 'stoneLantern', x: 9, z: -20.5, h: 2.2, opt: true },
-    ]),
+    ])),
+    decor: [],
     outsideTrees: true,
     runes: [[-10, -5.4], [10, 5.4]],
   },
@@ -5165,8 +5172,8 @@ const waterMat = new THREE.ShaderMaterial({
   fragmentShader: `uniform float t; varying vec3 vW; ${NOISE_GLSL} ${FOW_GLSL}
     void main(){ vec2 p=vW.xz*0.35; float a=fbm(p+vec2(t*0.25,t*0.12)); float b=fbm(p*1.7-vec2(t*0.18,-t*0.1));
       float r=pow(smoothstep(0.55,0.8,a*b*2.0),2.0);
-      vec3 col=mix(vec3(0.02,0.06,0.09),vec3(0.05,0.14,0.2),a)+vec3(0.5,0.65,0.9)*r*0.5;
-      gl_FragColor=vec4(col*fowK(vW.xz),0.9); }`,
+      vec3 col=mix(vec3(0.05,0.2,0.26),vec3(0.14,0.36,0.42),a)+vec3(0.7,0.85,1.0)*r*0.6;
+      gl_FragColor=vec4(col*fowK(vW.xz),0.82); }`,
 });
 // a cursed open grave: churning violet ghost-fire over a black pit
 const curseMat = new THREE.ShaderMaterial({
@@ -5466,6 +5473,39 @@ function cloneHero() {
 
 // props
 const PROP_TEMPLATES = {};
+// built in code, low-poly and flat-shaded like Warcraft 3 doodads: a round summer tree and the two lane spires
+(() => {
+  const mat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0, flatShading: true, ...o });
+  const lump = (r, seed) => { // a lumpy ball of leaves
+    const g = new THREE.IcosahedronGeometry(r, 1), p = g.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const k = 1 + 0.16 * Math.sin(v.x * 7 + seed) * Math.cos(v.z * 6 - seed) + 0.08 * Math.sin(v.y * 9 + seed * 2); v.multiplyScalar(k); v.y *= 0.8; p.setXYZ(i, v.x, v.y, v.z); }
+    g.computeVertexNormals(); return g;
+  };
+  { const t = new THREE.Group(), bark = mat(0x3a2414), leaf = mat(0x2a6a14), leaf2 = mat(0x3f8a1c), leafD = mat(0x1c4a0e);
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.3, 2.0, 6), bark); trunk.position.y = 1.0; t.add(trunk);
+    for (const [x, y, z, r, m, sd] of [[0, 2.5, 0, 1.25, leaf, 1], [0.55, 3.2, 0.2, 0.9, leaf2, 2], [-0.5, 3.0, -0.3, 0.95, leafD, 3], [0.1, 3.8, -0.1, 0.75, leaf2, 4]]) {
+      const b = new THREE.Mesh(lump(r, sd), m); b.position.set(x, y, z); t.add(b);
+    }
+    PROP_TEMPLATES.canopy = t; }
+  const spire = (stone, trim, roofC, gem, spikes) => {
+    const g = new THREE.Group(), st = mat(stone), tr = mat(trim, { metalness: 0.3, roughness: 0.6 }), rf = mat(roofC);
+    const gemM = new THREE.MeshStandardMaterial({ color: gem, emissive: gem, emissiveIntensity: 0.9, flatShading: true });
+    const add = (geo, m, y, ry = 0) => { const o = new THREE.Mesh(geo, m); o.position.y = y; o.rotation.y = ry; g.add(o); return o; };
+    add(new THREE.CylinderGeometry(1.25, 1.45, 0.6, 8), st, 0.3);
+    add(new THREE.CylinderGeometry(0.85, 1.1, 3.6, 8), st, 2.4);
+    add(new THREE.CylinderGeometry(1.15, 0.9, 0.35, 8), tr, 4.3);
+    add(new THREE.CylinderGeometry(0.75, 0.75, 0.9, 8), st, 4.9);
+    add(new THREE.ConeGeometry(1.05, 1.6, 8), rf, 6.15, Math.PI / 8);
+    add(new THREE.OctahedronGeometry(0.42), gemM, 7.45);
+    for (let k = 0; k < 8; k++) { // buttresses round the base, or bone spikes on the Dusk spire
+      const a = k / 8 * Math.PI * 2 + Math.PI / 8, o = spikes ? new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.4, 4), tr) : new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.4, 0.5), st);
+      o.position.set(Math.cos(a) * 1.05, spikes ? 1.3 : 1.0, Math.sin(a) * 1.05); o.rotation.y = -a; if (spikes) o.rotation.z = -0.5, o.rotation.order = 'YZX'; g.add(o);
+    }
+    return g;
+  };
+  PROP_TEMPLATES.spireDawn = spire(0xa89e88, 0xb8862a, 0x1e5a2c, 0x7aff4a, false);
+  PROP_TEMPLATES.spireDusk = spire(0x2e2634, 0xa8a090, 0x3a1048, 0xb03aff, true);
+})();
 function fallbackProp(kind) {
   const g = new THREE.Group();
   if (kind === 'tree') {
@@ -5604,8 +5644,9 @@ const sRGB = h => new THREE.Color(h).convertSRGBToLinear(); // colours picked in
 const LOOK = {
   molten: { base: '#2a1f1c', lo: '#120b0a', hi: '#3d2c26', accent: '#3a140c', path: '#38302c', grain: [70, 50, 44],
     rock: '#332723', cap: '#4a3c38', tuft: ['#2a1610', '#8a4020'], fire: '#ff6a1a', pool: 'rgba(255,90,20,0.55)' },
-  river: { base: '#2e3822', lo: '#161d0f', hi: '#465532', accent: '#4f6c2a', path: '#4a3f2c', grain: [80, 92, 60],
-    rock: '#42423c', cap: '#3a4826', tuft: ['#28361a', '#8cb04c'], fire: '#ffa040', pool: 'rgba(255,150,60,0.5)' },
+  river: { base: '#3e6a1e', lo: '#2a4c12', hi: '#5a8a2a', accent: '#78a032', path: '#6a5638', grain: [80, 120, 44],
+    rock: '#6a6252', cap: '#4a6a22', tuft: ['#3a5e1a', '#b4d860'], fire: '#ffa040', pool: 'rgba(255,150,60,0.4)',
+    blight: '#2c2432', blightLo: '#18121c', bank: '#7e6a46', cobble: '#7a746a', deadTuft: ['#241c28', '#7a6a7e'] },
   frozen: { base: '#566a80', lo: '#34445a', hi: '#8ca3bc', accent: '#c4d4e6', path: '#46586e', grain: [150, 170, 195],
     rock: '#56677e', cap: '#e8f0fa', tuft: ['#3a4a5e', '#c8d8ea'], fire: '#ffa850', pool: 'rgba(255,160,80,0.45)' },
   grave: { base: '#272c21', lo: '#12160e', hi: '#3c4331', accent: '#435a2a', path: '#4c483c', grain: [72, 78, 62],
@@ -5649,16 +5690,19 @@ function rockGeometry(theme) {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return geo;
 }
+// on a two-sided map, moss and grass on the Dusk side turn dead violet-grey
+const WHITE = new THREE.Color(1, 1, 1), BLIGHT = new THREE.Color(0.75, 0.5, 0.95);
+function blightTint(m, x, z) { return m.dawn(x, z + 1.5) ? WHITE : BLIGHT; }
 function addRocks(G, kit, list) { // list: [x, y, z, s, sy]
   if (!list.length) return;
   const im = new THREE.InstancedMesh(kit.geo, kit.mat, list.length), M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
-  list.forEach(([x, y, z, sc, sy], i) => { q.setFromEuler(e.set(rnd(-0.25, 0.25), rnd(0, 6.28), rnd(-0.25, 0.25))); im.setMatrixAt(i, M.compose(p.set(x, y, z), q, s.set(sc * rnd(0.85, 1.2), sy, sc))); });
+  list.forEach(([x, y, z, sc, sy], i) => { q.setFromEuler(e.set(rnd(-0.25, 0.25), rnd(0, 6.28), rnd(-0.25, 0.25))); im.setMatrixAt(i, M.compose(p.set(x, y, z), q, s.set(sc * rnd(0.85, 1.2), sy, sc))); if (MAP.dawn) im.setColorAt(i, blightTint(MAP, x, z)); });
   G.add(im);
 }
 
 // grass tufts: two crossed cards with painted blades; they sway a little in the vertex shader
-function tuftTexture(theme) {
-  const [root, tip] = LOOK[theme].tuft;
+function tuftTexture(theme, cols) {
+  const [root, tip] = cols || LOOK[theme].tuft;
   const t = canvasTex(128, (g) => {
     for (let i = 0; i < 26; i++) {
       const bx = 64 + rnd(-34, 34), h = rnd(55, 122), lean = rnd(-26, 26), w = rnd(2.5, 5);
@@ -5733,7 +5777,7 @@ function decorSpot(m, x, z, pad) {
 function planDecor(m) {
   const out = { tufts: [], pebbles: [], stones: [], ao: [] };
   const R = Math.max(m.hx, m.hz);
-  const nClusters = { molten: 16, river: 60, frozen: 0, grave: 48 }[m.theme];
+  const nClusters = { molten: 16, river: 70, frozen: 0, grave: 48 }[m.theme];
   for (let c = 0, tries = 0; c < nClusters && tries < 2000; tries++) {
     const x = rnd(-m.hx, m.hx), z = rnd(-m.hz, m.hz);
     // favour edges and cliff feet, where WC3 put its doodads; keep the open middle calmer
@@ -5787,9 +5831,29 @@ function paintGround(m, casters = [], decor = { ao: [] }) {
       g.strokeStyle = 'rgba(0,0,0,0.45)'; for (let i = 0; i < 50; i++) crackPath(g, rnd(0, S), rnd(0, S), rnd(8, 22) | 0, rnd(0, 7), 2.5);
       softLayer(g, S, toC, 0.85, 7, (l) => { for (const h of m.hazards) stroke(l, [h.a, h.b], (h.r + 1.3) * 2 * u, '#050202'); });
     }
-    if (m.theme === 'river') { // muddy banks and dirt trails between the bluffs
-      softLayer(g, S, toC, 0.9, 8, (l) => { for (const h of m.hazards) stroke(l, [h.a, h.b], (h.r + 1.6) * 2 * u, '#1e180e'); });
-      softLayer(g, S, toC, 0.6, 7, (l) => { for (const P of [[[-20, 14], [-6, 4], [6, -4], [20, -14]], [[-22, -6], [-12, -11], [-4, -14]], [[22, 6], [12, 11], [4, 14]]]) stroke(l, P, 2.2 * u, L.path); });
+    if (m.theme === 'river') { // Dusk blight across the river, sandy banks, and the cobbled lane between the spires
+      const dusk = [[-40, -40 * 16.2 / 30 - 3.4], [40, 40 * 16.2 / 30 - 3.4], [40, -40], [-40, -40]];
+      softLayer(g, S, toC, 0.92, 14, (l, P) => { l.fillStyle = L.blight; l.beginPath(); dusk.forEach(([x, z], i) => { const [a, c] = P(x, z); i ? l.lineTo(a, c) : l.moveTo(a, c); }); l.fill(); });
+      softLayer(g, S, toC, 0.5, 6, (l, P) => { l.fillStyle = L.blightLo; for (let i = 0; i < 40; i++) { const x = rnd(-24, 24), z = rnd(-20, 20); if (m.dawn(x, z + 3)) continue; const [a, c] = P(x, z); l.beginPath(); l.ellipse(a, c, rnd(6, 20), rnd(4, 14), rnd(0, 3), 0, 7); l.fill(); } });
+      softLayer(g, S, toC, 0.4, 5, (l, P) => { l.fillStyle = '#86a844'; for (let i = 0; i < 40; i++) { const x = rnd(-24, 24), z = rnd(-20, 20); if (!m.dawn(x, z - 3)) continue; const [a, c] = P(x, z); l.beginPath(); l.ellipse(a, c, rnd(6, 18), rnd(4, 12), rnd(0, 3), 0, 7); l.fill(); } });
+      softLayer(g, S, toC, 0.95, 6, (l) => { for (const h of m.hazards) stroke(l, [h.a, h.b], (h.r + 1.5) * 2 * u, L.bank); });
+      softLayer(g, S, toC, 0.85, 5, (l) => stroke(l, m.lane, 3.4 * u, L.path));
+      // cobbles: rows of rounded grey stones laid across the lane, gaps worn by traffic
+      g.save(); g.beginPath(); { const w = 1.25; for (let i = 0; i + 1 < m.lane.length; i++) { const [ax, az] = m.lane[i], [bx, bz] = m.lane[i + 1], d = Math.hypot(bx - ax, bz - az), nx = -(bz - az) / d * w, nz = (bx - ax) / d * w; [[ax + nx, az + nz], [bx + nx, bz + nz], [bx - nx, bz - nz], [ax - nx, az - nz]].forEach(([x, z], k) => { const [a, c] = toC(x, z); k ? g.lineTo(a, c) : g.moveTo(a, c); }); g.closePath(); } }
+      g.clip();
+      for (let i = 0; i + 1 < m.lane.length; i++) {
+        const [ax, az] = m.lane[i], [bx, bz] = m.lane[i + 1], d = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / d, uz = (bz - az) / d;
+        for (let t = 0; t < d; t += 0.36) for (let s2 = -1.25; s2 <= 1.25; s2 += 0.36) {
+          if (Math.random() < 0.12 + Math.abs(s2) * 0.25) continue; // worn away toward the edges
+          const x = ax + ux * t - uz * (s2 + (Math.round(t / 0.36) % 2) * 0.18), z = az + uz * t + ux * (s2 + (Math.round(t / 0.36) % 2) * 0.18);
+          if (hazardAt(x, z, m)) continue;
+          const [cx, cz] = toC(x, z), r = 0.16 / W * S, v = rnd(0.7, 1.05);
+          g.fillStyle = 'rgba(30,24,16,0.5)'; g.beginPath(); g.ellipse(cx + 1.5, cz + 2, r * 1.05, r * 0.9, 0, 0, 7); g.fill();
+          const c = new THREE.Color(L.cobble).multiplyScalar(v); g.fillStyle = '#' + c.getHexString(); g.beginPath(); g.ellipse(cx, cz, r, r * 0.85, rnd(0, 3), 0, 7); g.fill();
+        }
+      }
+      g.restore();
+      g.strokeStyle = 'rgba(190,110,255,0.10)'; for (let i = 0; i < 30; i++) { const x = rnd(-24, 24), z = rnd(-20, 20); if (m.dawn(x, z + 3)) continue; const [a, c] = toC(x, z); crackPath(g, a, c, rnd(6, 14) | 0, rnd(0, 7), 2); }
     }
     if (m.theme === 'grave') { // trodden gravel paths up the hill, dark rims round the cursed graves
       softLayer(g, S, toC, 0.75, 6, (l) => { stroke(l, [[0, -21], [0, 21]], 2.6 * u, L.path); stroke(l, [[-21, 0], [21, 0]], 2.6 * u, L.path); });
@@ -5818,6 +5882,7 @@ function paintGround(m, casters = [], decor = { ao: [] }) {
   }, true);
   const glow = canvasTex(S, (g) => {
     g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
+    if (m.theme === 'river') { g.strokeStyle = '#6a2aa0'; g.shadowColor = '#8a3ad0'; g.shadowBlur = 8; g.globalAlpha = 0.35; for (let i = 0; i < 26; i++) { const x = rnd(-24, 24), z = rnd(-20, 20); if (m.dawn(x, z + 4)) continue; const [a, c] = toC(x, z); crackPath(g, a, c, rnd(5, 12) | 0, rnd(0, 7), 1.5); } g.shadowBlur = 0; }
     if (m.theme === 'molten') { g.strokeStyle = '#d02a08'; g.shadowColor = '#c01800'; g.shadowBlur = 10; g.globalAlpha = 0.5; for (let i = 0; i < 24; i++) crackPath(g, rnd(0, S), rnd(0, S), rnd(6, 14) | 0, rnd(0, 7), 1.5); g.shadowBlur = 0; }
     g.globalAlpha = 1;
     for (const o of m.obstacles) if (o.prop === 'brazier') { // baked firelight pool: warm ground round every brazier, free at runtime
@@ -5832,7 +5897,7 @@ function paintGround(m, casters = [], decor = { ao: [] }) {
 
 // rock face texture for cliff walls: horizontal strata with vertical cracks
 function cliffTexture(theme) {
-  const [base, dark, light] = { molten: ['#1c1312', '#070303', '#3a2420'], river: ['#1e2219', '#080a06', '#38402c'], frozen: ['#3a4a5c', '#141c28', '#8aa4c0'], grave: ['#1d1d22', '#08080b', '#3a3a44'] }[theme] || ['#222', '#000', '#444'];
+  const [base, dark, light] = { molten: ['#1c1312', '#070303', '#3a2420'], river: ['#5e5444', '#2a2318', '#8c7e64'], frozen: ['#3a4a5c', '#141c28', '#8aa4c0'], grave: ['#1d1d22', '#08080b', '#3a3a44'] }[theme] || ['#222', '#000', '#444'];
   const t = canvasTex(256, (g) => {
     g.fillStyle = base; g.fillRect(0, 0, 256, 256);
     for (let y = 0; y < 256; y += rnd(6, 18)) { g.fillStyle = Math.random() < 0.5 ? dark : light; g.globalAlpha = rnd(0.15, 0.45); g.fillRect(0, y, 256, rnd(2, 7)); }
@@ -5914,15 +5979,17 @@ function buildMap(id) {
   scene.background = new THREE.Color(m.sky); scene.fog.color.set(m.fog[0]); scene.fog.density = m.fog[1];
   hemi.color.set(m.hemi[0]); hemi.groundColor.set(m.hemi[1]); hemi.intensity = m.hemi[2];
   sun.color.set(m.sun[0]); sun.intensity = m.sun[1]; renderer.toneMappingExposure = m.exposure;
-  glowLight.color.set(m.theme === 'molten' ? 0xff3a08 : m.theme === 'river' ? 0x2a6aff : m.theme === 'grave' ? 0x6a3aff : 0x6ab0ff);
+  glowLight.color.set(m.theme === 'molten' ? 0xff3a08 : m.theme === 'river' ? 0xffe2a8 : m.theme === 'grave' ? 0x6a3aff : 0x6ab0ff);
   glowLight.intensity = m.theme === 'molten' ? 0.8 : 0.35;
 
   // props first: their shadows are baked into the ground texture below
   const lists = {};
   const put = (kind, o) => { (lists[kind] = lists[kind] || []).push(o); };
   if (m.outsideTrees) {
-    for (const [x, z] of edgePoints(64, 1.6)) put('treeFar', { x: x + rnd(-1.2, 1.2), z: z + rnd(-1.2, 1.2), h: rnd(4.5, 6.5), rot: rnd(0, 6.28) });
-    for (const [x, z] of edgePoints(26, 8)) put('treeFar', { x: x + rnd(-2, 2), z: z + rnd(-2, 2), h: rnd(5, 7.5), rot: rnd(0, 6.28) });
+    const wood = (x, z) => m.dawn && m.dawn(x, z) ? 'canopy' : 'treeFar';
+    for (const [x, z] of edgePoints(64, 1.6)) put(wood(x, z), { x: x + rnd(-1.2, 1.2), z: z + rnd(-1.2, 1.2), h: rnd(4.5, 6.5), rot: rnd(0, 6.28) });
+    if (m.dawn) for (const [x, z] of edgePoints(48, 4.5)) put(wood(x, z), { x: x + rnd(-1.5, 1.5), z: z + rnd(-1.5, 1.5), h: rnd(5, 7), rot: rnd(0, 6.28) });
+    for (const [x, z] of edgePoints(26, 8)) put(wood(x, z), { x: x + rnd(-2, 2), z: z + rnd(-2, 2), h: rnd(5, 7.5), rot: rnd(0, 6.28) });
   }
   if (m.theme === 'frozen') for (const [x, z] of edgePoints(22, 1.2)) put('ice', { x, y: -0.2, z, h: rnd(1.6, 2.8), rot: rnd(0, 6.28) });
   const casters = [];
@@ -5952,7 +6019,7 @@ function buildMap(id) {
   if (m.edge === 'lava') { const lava = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), lavaMat); lava.rotation.x = -Math.PI / 2; lava.position.y = -1.4; G.add(lava); }
   if (m.edge === 'abyss') { const v = new THREE.Mesh(new THREE.PlaneGeometry(300, 300), voidMat); v.rotation.x = -Math.PI / 2; v.position.y = -18; G.add(v); }
   if (m.edge === 'wall') {
-    const outer = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), own(new THREE.MeshStandardMaterial({ color: 0x07090a, roughness: 1 })));
+    const outer = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), own(new THREE.MeshStandardMaterial({ color: m.outer || 0x07090a, roughness: 1 })));
     outer.rotation.x = -Math.PI / 2; outer.position.y = -0.03; G.add(outer);
   }
   // hazard ribbons
@@ -5982,9 +6049,11 @@ function buildMap(id) {
     });
     addRocks(G, kit, rim.concat(decor.pebbles)); }
   // grass tufts and headstones
-  if (decor.tufts.length) {
-    const tm = own(tuftMaterial(own(tuftTexture(m.theme)))), im = new THREE.InstancedMesh(tuftGeometry(), tm, decor.tufts.length), M = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), sc = new THREE.Vector3();
-    decor.tufts.forEach(([x, y, z, s], i) => im.setMatrixAt(i, M.compose(p.set(x, y - 0.02, z), q.setFromAxisAngle(up, rnd(0, 6.28)), sc.set(s * rnd(0.9, 1.3), s, s))));
+  // on a two-sided map the Dusk side gets dead, violet-grey grass
+  for (const [list, cols] of m.dawn ? [[decor.tufts.filter(([x, , z]) => m.dawn(x, z + 1.5)), null], [decor.tufts.filter(([x, , z]) => !m.dawn(x, z + 1.5)), LOOK[m.theme].deadTuft]] : [[decor.tufts, null]]) {
+    if (!list.length) continue;
+    const tm = own(tuftMaterial(own(tuftTexture(m.theme, cols)))), im = new THREE.InstancedMesh(tuftGeometry(), tm, list.length), M = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), sc = new THREE.Vector3();
+    list.forEach(([x, y, z, s], i) => im.setMatrixAt(i, M.compose(p.set(x, y - 0.02, z), q.setFromAxisAngle(up, rnd(0, 6.28)), sc.set(s * rnd(0.9, 1.3), s, s))));
     G.add(im);
   }
   if (decor.stones.length) {
@@ -6061,7 +6130,6 @@ class Unit {
     if (this.ultCd > 0) return 'Requiem of Souls is on cooldown';
     if (this.souls < CFG.ultMinSouls) return 'Requiem needs at least ' + CFG.ultMinSouls + ' souls';
     this.ult = { t: CFG.ultCast }; this.moveTarget = null; this.faceAngle = null; this.stats.ults = (this.stats.ults || 0) + 1;
-    if (this.invis > 0) this.invis = 0;
     fxUltCharge(this); netEv('ultc', this.id);
     return true;
   }
@@ -6096,7 +6164,7 @@ class Unit {
     let dir = null;
     if (this.ult) {
       this.ult.t -= dt;
-      if (this.ult.t <= 0) { this.ult = null; this.ultCd = CFG.ultCd; this.post = 0.5; releaseRequiem(this); }
+      if (this.ult.t <= 0) { this.ult = null; this.ultCd = CFG.ultCd; this.post = 0.5; this.invis = 0; releaseRequiem(this); } // as in DotA, the veil holds until the cast goes off
     } else if (this.cast) {
       this.cast.t -= dt;
       if (this.cast.t <= 0) { const s = this.cast.slot; this.cast = null; this.post = 0.38; this.cd[s] = CFG.razeCd * this.mod.cdMul; this.tele.visible = false; resolveRaze(this, s); }
@@ -6389,9 +6457,9 @@ function resolveRaze(u, slot) {
   fxRaze(u, c.x, c.y, power, dd, hit); netEv('raze', u.id, +c.x.toFixed(2), +c.y.toFixed(2), power, dd ? 1 : 0, hit ? 1 : 0);
 }
 const requiemLines = [];
-function releaseRequiem(u, n = Math.max(1, Math.floor(u.souls / 2)), off = rnd(0, 6.28)) {
+function releaseRequiem(u, n = Math.max(1, Math.floor(u.souls / 2)), off = rnd(0, 6.28), slow = true) {
   if (NET.role !== 'client') netEv('req', u.id, n, +off.toFixed(3));
-  for (let i = 0; i < n; i++) { const a = off + i / n * Math.PI * 2; requiemLines.push({ u, x: u.pos.x, z: u.pos.z, dx: Math.sin(a), dz: Math.cos(a), d: 0, hit: new Set() }); }
+  for (let i = 0; i < n; i++) { const a = off + i / n * Math.PI * 2; requiemLines.push({ u, x: u.pos.x, z: u.pos.z, dx: Math.sin(a), dz: Math.cos(a), d: 0, hit: new Set(), slow }); }
   sfx('requiem', u.isPlayer ? 1 : earVol(u.pos), u.pos);
   addFx(crackPool[crackI++ % crackPool.length], 2.2, 'crack', u.pos.x, u.pos.z, 2.4, 3.2, 1, 0xff3a20);
   addFx(ringPool[ringI++ % ringPool.length], 0.6, 'ring', u.pos.x, u.pos.z, 0.6, CFG.ultRange * 1.05, 0.9, 0xff2a10);
@@ -6410,7 +6478,7 @@ function updateRequiem(st) {
       if (segDist(o.pos.x, o.pos.z, [ax, az], [bx, bz]) > CFG.unitR + CFG.ultWidth) continue;
       L.hit.add(o);
       if (o.immune > 0 || o.cyclone > 0) continue;
-      damage(o, CFG.ultDmg, L.u); o.slowT = CFG.ultSlowDur;
+      damage(o, CFG.ultDmg, L.u); if (L.slow) o.slowT = CFG.ultSlowDur;
     }
     // the soul streak: a hot core with a smoky wake
     const seen = !player || canSee(player, bx, bz) || L.u === player;
@@ -6439,6 +6507,8 @@ function kill(o, src, env) {
     for (const [a, t] of o.hitBy) if (a !== src && a !== o && gameTime - t <= GOLD.assistWindow) { payGold(a, GOLD.assist, o.pos); a.stats.assists++; }
   }
   o.hitBy.clear();
+  // as in DotA 2: a dying Shadow Fiend lets his souls go in a last Requiem, whatever its cooldown
+  if (o.souls >= CFG.ultMinSouls) releaseRequiem(o, undefined, undefined, false); // damage only: the slow is for a cast Requiem
   const lost = Math.floor(o.souls / 2); o.souls -= lost; const prevStreak = o.streak; o.streak = 0;
   const orbN = 6 + Math.min(lost, 10), by = src && src !== o ? src : null;
   fxDeath(o, by, orbN); netEv('die', o.id, by ? by.id : -1, orbN);
@@ -6861,6 +6931,10 @@ function groundPoint(e) {
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 renderer.domElement.addEventListener('mousedown', e => {
   if (state !== 'play' || !player) return;
+  if (targeting) {
+    if (e.button === 0) { const p = groundPoint(e); if (p) act({ t: 'item', i: targeting.i, x: +p.x.toFixed(2), z: +p.z.toFixed(2) }); }
+    targeting = null; return; // right-click just cancels the aim
+  }
   if (e.button === 2) {
     rightDown = true; const p = groundPoint(e); if (!p) return;
     const si = (MAP.shops || []).findIndex(o => Math.hypot(o.x - p.x, o.z - p.z) < 2.6);
@@ -6893,6 +6967,7 @@ addEventListener('keydown', e => {
   if (k === 'r') act({ t: 'ult' });
   if (k === 's' && settings.move === 'mouse') act({ t: 'stop' });
   if (k === 'm') { AUD.muted = !AUD.muted; announce('', AUD.muted ? 'Sound muted (M)' : 'Sound on (M)'); }
+  if (k === 'escape' && targeting) { targeting = null; return; }
   if (k === 'escape') { if (shopOpen) toggleShop(false); else pauseToMenu(); }
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -6924,7 +6999,27 @@ let errT = 0;
 function showErr(msg) { $('err').textContent = msg; $('err').style.opacity = 1; errT = 1.6; sfx('error', 0.5); }
 function playerUseItem(i) {
   if (!player) return;
+  const it = player.items[i], D = it && ITEMS[it.id];
+  if (D && (D.target === 'point' || D.target === 'unit') && !(it.cd > 0)) { // aim first, as in DotA: left-click casts, right-click or Esc cancels
+    targeting = targeting && targeting.i === i ? null : { i }; return;
+  }
   act(cursor ? { t: 'item', i, x: +cursor.x.toFixed(2), z: +cursor.z.toFixed(2) } : { t: 'item', i });
+}
+let targeting = null; // { i }: the inventory slot being aimed
+const aimRing = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: 0x5aa8ff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 }));
+const aimMark = new THREE.Mesh(quadGeo, new THREE.MeshBasicMaterial({ map: ringTex, color: 0x9ad0ff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.95 }));
+for (const m of [aimRing, aimMark]) { m.rotation.x = -Math.PI / 2; m.visible = false; m.renderOrder = 3; scene.add(m); }
+function updateTargeting() {
+  const it = targeting && player && player.alive && state === 'play' && player.items[targeting.i];
+  if (!it || it.cd > 0) targeting = null;
+  const on = !!targeting; aimRing.visible = aimMark.visible = on && !!cursor;
+  document.body.classList.toggle('aiming', on);
+  if (!on || !cursor) return;
+  const D = ITEMS[it.id], px = player.pos.x, pz = player.pos.z;
+  aimRing.position.set(px, H(px, pz) + 0.09, pz); aimRing.scale.setScalar(D.range);
+  let x = cursor.x, z = cursor.z; const d = Math.hypot(x - px, z - pz);
+  if (D.target === 'point' && d > D.range) { x = px + (x - px) / d * D.range; z = pz + (z - pz) / d * D.range; } // a blink past its range goes as far as it can
+  aimMark.position.set(x, H(x, z) + 0.1, z); aimMark.scale.setScalar(D.target === 'unit' ? 1.2 : 0.9);
 }
 // every action the local player takes goes through here: run at once offline or as host, sent to the host as a guest
 function act(c) {
@@ -6945,6 +7040,7 @@ function applyCmd(u, c) {
     case 'item': return c.i >= 0 && c.i < 6 ? useItem(u, c.i, isFinite(c.x) ? { x: c.x, z: c.z } : null) : 'Empty slot';
     case 'buy': return ITEMS[c.id] && SHOP.includes(c.id) ? buyItem(u, c.id) : 'Unknown item';
     case 'sell': return c.i >= 0 && c.i < 6 && sellItem(u, c.i) ? true : 'Walk up to a Soul Merchant to sell';
+    case 'swap': if (c.a >= 0 && c.a < 6 && c.b >= 0 && c.b < 6) [u.items[c.a], u.items[c.b]] = [u.items[c.b], u.items[c.a]]; return true;
     case 'wasd': u.netInput = { x: Math.sign(c.x) || 0, z: Math.sign(c.z) || 0 }; return true;
   }
   return true;
@@ -6967,12 +7063,35 @@ const invEls = [];
 for (let i = 0; i < 6; i++) {
   const el = document.createElement('div'); el.className = 'islot empty';
   el.innerHTML = `<img alt=""><div class="cd"></div><span class="k">${i + 1}</span><span class="n"></span><span class="t"></span>`;
-  el.addEventListener('mousedown', e => { e.stopPropagation(); if (!player) return; if (e.button === 0) playerUseItem(i); if (e.button === 2 && player.items[i]) act({ t: 'sell', i }); });
+  el.addEventListener('mousedown', e => {
+    e.stopPropagation(); if (!player) return;
+    if (e.button === 0 && player.items[i]) invDrag = { i, x: e.clientX, y: e.clientY, ghost: null };
+    if (e.button === 2 && player.items[i]) act({ t: 'sell', i });
+  });
   el.addEventListener('contextmenu', e => e.preventDefault());
-  el.addEventListener('mouseenter', () => { const it = player && player.items[i]; if (!it) return; const r = el.getBoundingClientRect(), T = $('itemTip'); T.innerHTML = itemTipHTML(it.id) + '<div class="classic">Right-click to sell for half</div>'; T.style.left = Math.min(innerWidth - 270, r.left - 100) + 'px'; T.style.bottom = (innerHeight - r.top + 8) + 'px'; T.classList.remove('hidden'); });
+  el.addEventListener('mouseenter', () => { const it = player && player.items[i]; if (!it) return; const r = el.getBoundingClientRect(), T = $('itemTip'); T.innerHTML = itemTipHTML(it.id) + '<div class="classic">Drag to another slot to move · right-click to sell for half</div>'; T.style.left = Math.min(innerWidth - 270, r.left - 100) + 'px'; T.style.bottom = (innerHeight - r.top + 8) + 'px'; T.classList.remove('hidden'); });
   el.addEventListener('mouseleave', () => $('itemTip').classList.add('hidden'));
   $('inv').appendChild(el); invEls.push(el);
 }
+// dragging an inventory item: a ghost icon follows the mouse; dropping it on another slot swaps the two
+let invDrag = null;
+addEventListener('mousemove', e => {
+  if (!invDrag) return;
+  if (!invDrag.ghost && Math.hypot(e.clientX - invDrag.x, e.clientY - invDrag.y) > 6) {
+    const g = invDrag.ghost = document.createElement('img'); g.id = 'invGhost'; g.src = invEls[invDrag.i].querySelector('img').src; document.body.appendChild(g);
+    invEls[invDrag.i].classList.add('dragging'); $('itemTip').classList.add('hidden');
+  }
+  if (invDrag.ghost) { invDrag.ghost.style.left = e.clientX - 22 + 'px'; invDrag.ghost.style.top = e.clientY - 22 + 'px'; invEls.forEach(el => el.classList.toggle('drop', el === slotAt(e))); }
+});
+addEventListener('mouseup', e => {
+  if (!invDrag || e.button !== 0) return;
+  const d = invDrag; invDrag = null;
+  if (!d.ghost) { playerUseItem(d.i); return; }
+  d.ghost.remove(); invEls.forEach(el => el.classList.remove('drop', 'dragging'));
+  const to = invEls.indexOf(slotAt(e));
+  if (to >= 0 && to !== d.i) { act({ t: 'swap', a: d.i, b: to }); sfx('coin', 0.25); }
+});
+function slotAt(e) { const el = document.elementFromPoint(e.clientX, e.clientY); return el && el.closest('.islot'); }
 let invSig = '';
 function refreshInv() { invSig = ''; }
 function updateInv() {
@@ -7052,7 +7171,7 @@ function updateHud(dt) {
     if (s === 3) { el.querySelector('i').textContent = Math.max(1, Math.floor(player.souls / 2)) + ' lines'; el.classList.toggle('locked', player.souls < CFG.ultMinSouls); }
   });
   $('soulCount').textContent = player.souls;
-  updateInv(); if (shopOpen) updateShop();
+  updateInv(); updateTargeting(); if (shopOpen) updateShop();
   if (errT > 0) { errT -= dt; if (errT <= 0) $('err').style.opacity = 0; }
   { // the Soul Merchant: open on arrival after right-clicking it; hint when standing near one
     const near = atShop(player);
@@ -7079,7 +7198,7 @@ function drawMinimap() {
   mm.clearRect(0, 0, S, S);
   mm.save(); mm.beginPath(); mm.arc(S / 2, S / 2, S / 2 - 1, 0, 7); mm.clip();
   mm.fillStyle = MAP.theme === 'molten' ? '#3a1408' : MAP.theme === 'river' || MAP.theme === 'grave' ? '#0c0f14' : '#05080e'; mm.fillRect(0, 0, S, S);
-  mm.fillStyle = MAP.theme === 'frozen' ? '#46566a' : MAP.theme === 'river' ? '#1e2a16' : MAP.theme === 'grave' ? '#1e221c' : '#2a1d18';
+  mm.fillStyle = MAP.theme === 'frozen' ? '#46566a' : MAP.theme === 'river' ? '#3e5e22' : MAP.theme === 'grave' ? '#1e221c' : '#2a1d18';
   mm.beginPath();
   if (MAP.r >= Math.min(MAP.hx, MAP.hz)) mm.arc(S / 2, S / 2, MAP.hx * k, 0, 7);
   else { const hx = MAP.hx * k, hz = MAP.hz * k, r = MAP.r * k, c = S / 2; mm.moveTo(c - hx + r, c - hz); mm.arcTo(c + hx, c - hz, c + hx, c + hz, r); mm.arcTo(c + hx, c + hz, c - hx, c + hz, r); mm.arcTo(c - hx, c + hz, c - hx, c - hz, r); mm.arcTo(c - hx, c - hz, c + hx, c - hz, r); }
@@ -7505,8 +7624,7 @@ function frame(now) {
     for (const h of m.hazards) for (let n = emitN(30, dt); n > 0; n--) { const t = Math.random(); particles.spawn(h.a[0] + (h.b[0] - h.a[0]) * t, 0.1, h.a[1] + rnd(-h.r, h.r), 0, rnd(0.8, 2), 0, rnd(1, 2), rnd(0.2, 0.5), 0.05, EMBER, [0.3, 0.02, 0], 0.2, 0); }
     for (const e of m._emit || []) for (let n = emitN(9, dt); n > 0; n--) particles.spawn(e[0] + rnd(-0.3, 0.3), e[1] * rnd(0.3, 1), e[2] + rnd(-0.3, 0.3), 0, rnd(0.3, 0.8), 0, 1.2, 0.3, 0.05, [1, 0.15, 0.05], [0.3, 0, 0], 0, 0);
   } else if (m.theme === 'river') {
-    for (let n = emitN(36, dt); n > 0; n--) particles.spawn(rnd(-m.hx, m.hx), rnd(0.5, 3), rnd(-m.hz, m.hz), rnd(-0.3, 0.3), rnd(-0.1, 0.2), rnd(-0.3, 0.3), rnd(2, 4), 0.18, 0.1, [0.6, 1, 0.4], [0.1, 0.3, 0.05], 0, 0);
-    for (let n = emitN(18, dt); n > 0; n--) { const t = Math.random(), h = m.hazards[0]; smoke.spawn(h.a[0] + (h.b[0] - h.a[0]) * t, 0.3, h.a[1] + (h.b[1] - h.a[1]) * t + rnd(-2, 2), 0.3, 0.1, 0.2, 4, 2, 4, [0.12, 0.16, 0.22], [0.05, 0.07, 0.1], 0, 0); }
+    for (let n = emitN(30, dt); n > 0; n--) { const x = rnd(-m.hx, m.hx), z = rnd(-m.hz, m.hz); if (m.dawn(x, z)) particles.spawn(x, rnd(0.5, 3), z, rnd(-0.3, 0.3), rnd(-0.1, 0.2), rnd(-0.3, 0.3), rnd(2, 4), 0.12, 0.08, [0.9, 0.9, 0.5], [0.3, 0.3, 0.1], 0, 0); else particles.spawn(x, 0.2, z, 0, rnd(0.3, 0.8), 0, rnd(1.5, 3), 0.2, 0.05, [0.6, 0.25, 1], [0.15, 0, 0.3], 0, 0); }
   } else if (m.theme === 'frozen') {
     for (let n = emitN(240, dt); n > 0; n--) { const cx = camLook.x + rnd(-25, 25), cz = camLook.z + rnd(-20, 25); particles.spawn(cx, rnd(10, 14), cz, rnd(-0.6, 0.2), -rnd(1.2, 2), rnd(-0.3, 0.3), 7, 0.14, 0.14, [0.7, 0.8, 0.95], [0.5, 0.6, 0.75], 0, 0); }
     for (let n = emitN(24, dt); n > 0; n--) { const p = edgePointsCache[Math.random() * edgePointsCache.length | 0]; if (p) smoke.spawn(p[0], -1, p[1], 0, rnd(0.5, 1.2), 0, 3, 2, 4, [0.2, 0.28, 0.38], [0.08, 0.1, 0.14], 0, 0); }
