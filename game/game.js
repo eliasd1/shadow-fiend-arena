@@ -1393,7 +1393,7 @@ const labelsEl = $('labels');
 class Unit {
   constructor(i, name, isPlayer) {
     this.id = i; this.name = name; this.isPlayer = isPlayer; this.color = COLORS[i % COLORS.length];
-    this.pos = new THREE.Vector3(); this.prev = new THREE.Vector3(); this.vel = new THREE.Vector3(); this.slide = new THREE.Vector2();
+    this.pos = new THREE.Vector3(); this.prev = new THREE.Vector3(); this.rpos = new THREE.Vector3(); this.vel = new THREE.Vector3(); this.slide = new THREE.Vector2();
     this.facing = 0; this.faceAngle = null; this.moveTarget = null;
     this.hp = CFG.hp; this.souls = 0; this.kills = 0; this.deaths = 0; this.streak = 0;
     this.alive = true; this.respawnT = 0; this.prot = 0; this.cd = [0, 0, 0]; this.cast = null; this.post = 0;
@@ -1626,11 +1626,13 @@ class Unit {
     for (let i = 1; i <= 3; i++) B['tail' + i].rotation.set(X('tailX' + i), 0, X('tailZ' + i));
   }
   visual(dt, t) {
+    // drawn between the last two 60 Hz sim steps, so movement stays smooth on 120/144 Hz screens instead of stuttering
+    this.rpos.lerpVectors(this.prev, this.pos, simAlpha);
     const alive = this.alive;
     this.seen = this === player || !player || canSeeUnit(player, this);
     this.root.visible = this.seen;
-    const gy = H(this.pos.x, this.pos.z); this.gy = this.gy === undefined || Math.abs(this.gy - gy) > 1 ? gy : this.gy + (gy - this.gy) * Math.min(1, dt * 14);
-    this.root.position.set(this.pos.x, this.gy, this.pos.z);
+    const gy = H(this.rpos.x, this.rpos.z); this.gy = this.gy === undefined || Math.abs(this.gy - gy) > 1 ? gy : this.gy + (gy - this.gy) * Math.min(1, dt * 14);
+    this.root.position.set(this.rpos.x, this.gy, this.rpos.z);
     this.model.userData.groundY.value = this.gy + 0.025;
     this.flash = Math.max(0, this.flash - dt * 5);
     const m = this.model;
@@ -2464,7 +2466,7 @@ function project(p, y) { tmpV.set(p.x, y + H(p.x, p.z), p.z).project(camera); re
 let hudT = 0, mmT = 0, lastBuffs = '';
 function updateHud(dt) {
   for (const u of units) {
-    const [x, y, z] = project(u.pos, 3.5);
+    const [x, y, z] = project(u.rpos, 3.5);
     const show = u.alive && z < 1 && u.seen !== false;
     u.label.style.display = show ? '' : 'none';
     if (show) { u.label.style.left = x + 'px'; u.label.style.top = y + 'px'; const f = u.hp / u.maxHp; u.hbEl.style.width = (f * 100) + '%'; u.hbEl.style.background = f > 0.5 ? '#4adf4a' : f > 0.25 ? '#e0c030' : '#e04030'; }
@@ -2876,7 +2878,7 @@ $('optMap').onchange = () => { if (state === 'menu' && !units.length) buildMap($
 // ------------------------------------------------------------------ main loop
 let last = performance.now(), acc = 0, time = 0, beatT = 0;
 // ---- game feel: hit-stop (a few frames of near-freeze on impact), slow motion, screen flash, camera kick
-let hitStopT = 0, slowMo = null, flashA = 0;
+let hitStopT = 0, slowMo = null, flashA = 0, simAlpha = 1;
 function hitStop(sec) { hitStopT = Math.max(hitStopT, sec); }
 function addShake(a) { if (settings.shake !== 'off') shake = Math.max(shake, a); }
 function screenFlash(color, a) { const f = $('flash'); f.style.setProperty('--c', color); flashA = Math.max(flashA, a); }
@@ -2915,6 +2917,7 @@ function frame(now) {
     acc += dt;
     while (acc >= CFG.step) { simStep(CFG.step); acc -= CFG.step; }
   }
+  simAlpha = NET.role === 'client' ? 1 : Math.min(1, acc / CFG.step); // guests already smooth their own positions
   if (NET.role === 'host' && (state === 'play' || state === 'end')) netHostTick(rdt);
   mark(); // sim
   units.forEach(u => u.visual(dt, time));
@@ -2969,7 +2972,7 @@ function frame(now) {
   // camera
   if (player && state !== 'menu') {
     zoom += (zoomTarget - zoom) * (1 - Math.exp(-rdt * 10));
-    const f = camFocus || player.pos, z = camFocus ? zoom * 0.62 : zoom; // camFocus: the final-kill cam
+    const f = camFocus || player.rpos, z = camFocus ? zoom * 0.62 : zoom; // camFocus: the final-kill cam
     camLook.lerp(tmpCam.set(f.x, H(f.x, f.z), f.z), 1 - Math.exp(-rdt * (camFocus ? 3 : 14)));
     camPos.lerp(tmpCam.set(camLook.x, camLook.y + 16 * z, camLook.z + 11 * z), camFocus ? 1 - Math.exp(-rdt * 3) : 1);
   } else if (!player) {
