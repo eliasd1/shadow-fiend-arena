@@ -1,6 +1,6 @@
 # Playing online with friends
 
-1. Open `game/play.html`, type your name and press **HOST ONLINE**.
+1. Open the game at https://eliasd1.github.io/shadow-fiend-arena/game/play.html (or your own copy of `game/play.html`), type your name and press **HOST ONLINE**.
 2. Send your friends the **invite code**, for example `NDY7QC`. Or press **Copy invite link** and send them that.
 3. Each friend opens their own copy of `play.html`, presses **JOIN A FRIEND** and types the code. Their names appear in your lobby.
 4. You pick the map, kills, fog and number of bots, then press **PLAY**. Up to 8 heroes can play: you, up to 7 friends, and bots in the empty slots.
@@ -16,7 +16,7 @@
 
 ## Limits
 
-- **Invite link:** the link only opens straight into the game when `play.html` is on a website, for example itch.io or GitHub Pages. When it's opened from your own disk, the link points at your own computer, so friends should type the code instead.
+- **Invite link:** the link opens straight into the game when you host from the website above. If you host from a copy on your own disk, the link points at your own computer, so friends should type the code instead.
 - **Strict networks:** some networks (strict company or school firewalls, some mobile carriers) block direct connections. Getting through those needs a relay ("TURN") server, which isn't set up.
 - **Delay:** your own hero responds after one round trip to the host. Other heroes are shown about 0.1 s behind, to keep their movement smooth.
 
